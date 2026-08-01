@@ -40,6 +40,9 @@ public sealed class InputCapture : IDisposable
 
     public bool IsRunning => _running;
 
+    /// <summary>Logs every hook event and report; useful only for diagnosing delivery problems.</summary>
+    public bool Verbose { get; init; }
+
     public int KeyboardEvents => _keyboardEvents;
     public int MouseEvents => _mouseEvents;
 
@@ -88,7 +91,8 @@ public sealed class InputCapture : IDisposable
             DispatchMessage(ref message);
         }
 
-        Log?.Invoke($"  [hook] message loop exited ({result}), keyboard events={_keyboardEvents}, mouse events={_mouseEvents}");
+        if (Verbose)
+            Log?.Invoke($"  [hook] message loop exited ({result}), keyboard events={_keyboardEvents}, mouse events={_mouseEvents}");
 
         if (_keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHook);
         if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
@@ -125,7 +129,7 @@ public sealed class InputCapture : IDisposable
 
         var modifiers = CurrentModifiers();
         var usages = _pressedUsages.Take(6).ToArray();
-        if (_keyboardEvents <= 20)
+        if (Verbose && _keyboardEvents <= 20)
             Log?.Invoke($"  [key] vk=0x{virtualKey:x2} {(isDown ? "down" : "up")} -> mod=0x{(byte)modifiers:x2} usages=[{string.Join(" ", usages.Select(u => u.ToString("x2")))}]");
 
         KeyboardReport?.Invoke(modifiers, usages);
@@ -149,7 +153,7 @@ public sealed class InputCapture : IDisposable
                 var dy = data.pt.y - _centerY;
                 if (dx != 0 || dy != 0)
                 {
-                    if (_mouseEvents <= 10) Log?.Invoke($"  [mouse] move {dx},{dy}");
+                    if (Verbose && _mouseEvents <= 10) Log?.Invoke($"  [mouse] move {dx},{dy}");
                     MouseReport?.Invoke(_buttons, dx, dy, 0);
                     SetCursorPos(_centerX, _centerY);
                 }

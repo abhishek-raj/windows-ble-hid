@@ -43,9 +43,11 @@ Console.WriteLine($"""
       click <l|r|m>        click a mouse button
       scroll <n>           scroll wheel
       capture              redirect local keyboard+mouse (Ctrl+Alt+Q to stop)
+      capture verbose      same, with per-report timing diagnostics
       status               show subscriber counts
       peers                list connected Bluetooth peers
       appearance           advertise GAP appearance = keyboard
+      burst <n>            time <n> raw mouse notifies (link diagnostic)
       quit                 exit
 
     """);
@@ -83,7 +85,8 @@ while (true)
                     break;
                 }
 
-                using var capture = new InputCapture();
+                var verbose = argument.Trim().Equals("verbose", StringComparison.OrdinalIgnoreCase);
+                using var capture = new InputCapture { Verbose = verbose };
                 var stopped = new TaskCompletionSource();
 
                 // Keystrokes must all be delivered, but pointer motion is coalesced:
@@ -100,7 +103,7 @@ while (true)
                 {
                     var clock = System.Diagnostics.Stopwatch.StartNew();
                     var iterations = 0;
-                    Console.WriteLine("  [pump] started");
+                    if (verbose) Console.WriteLine("  [pump] started");
                     while (!pumpCancellation.IsCancellationRequested)
                     {
                         iterations++;
@@ -112,7 +115,7 @@ while (true)
                                 var started = clock.ElapsedMilliseconds;
                                 await peripheral.SendKeyboardAsync(key.Modifiers, key.Usages);
                                 var elapsed = clock.ElapsedMilliseconds - started;
-                                if (sent < 40) Console.WriteLine($"  [pump] key notify #{sent} took {elapsed} ms");
+                                if (verbose && sent < 40) Console.WriteLine($"  [pump] key notify #{sent} took {elapsed} ms");
                                 Interlocked.Increment(ref sent);
                                 didWork = true;
                             }
@@ -133,7 +136,7 @@ while (true)
                                 var started = clock.ElapsedMilliseconds;
                                 await peripheral.SendMouseAsync(buttons, dx, dy, wheel);
                                 var elapsed = clock.ElapsedMilliseconds - started;
-                                if (sent < 40) Console.WriteLine($"  [pump] mouse notify #{sent} ({dx},{dy}) took {elapsed} ms");
+                                if (verbose && sent < 40) Console.WriteLine($"  [pump] mouse notify #{sent} ({dx},{dy}) took {elapsed} ms");
                                 Interlocked.Increment(ref sent);
                                 didWork = true;
                             }
@@ -150,7 +153,8 @@ while (true)
                         }
                     }
 
-                    Console.WriteLine($"  [pump] exited after {iterations} iterations, {clock.ElapsedMilliseconds} ms");
+                    if (verbose)
+                        Console.WriteLine($"  [pump] exited after {iterations} iterations, {clock.ElapsedMilliseconds} ms");
                 });
 
                 capture.Log += message => Console.WriteLine(message);
