@@ -69,6 +69,9 @@ public sealed class InputCapture : IDisposable
     {
         _threadId = GetCurrentThreadId();
 
+        // Default timer granularity is ~15.6 ms, too coarse to pace HID reports.
+        timeBeginPeriod(1);
+
         _centerX = GetSystemMetrics(0) / 2;
         _centerY = GetSystemMetrics(1) / 2;
         SetCursorPos(_centerX, _centerY);
@@ -97,6 +100,7 @@ public sealed class InputCapture : IDisposable
         if (_keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHook);
         if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
         _keyboardHook = _mouseHook = IntPtr.Zero;
+        timeEndPeriod(1);
     }
 
     private IntPtr KeyboardHookProc(int code, IntPtr wParam, IntPtr lParam)
@@ -230,6 +234,12 @@ public sealed class InputCapture : IDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("winmm.dll")]
+    private static extern uint timeBeginPeriod(uint uPeriod);
+
+    [DllImport("winmm.dll")]
+    private static extern uint timeEndPeriod(uint uPeriod);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnhookWindowsHookEx(IntPtr hhk);

@@ -30,7 +30,7 @@ public enum MouseButtons : byte
 public static class HidReports
 {
     public const int KeyboardReportLength = 8;
-    public const int MouseReportLength    = 4;
+    public const int MouseReportLength    = 6;
 
     public static byte[] Keyboard(KeyModifiers modifiers, params byte[] usages)
     {
@@ -44,13 +44,18 @@ public static class HidReports
 
     public static byte[] KeyboardRelease() => new byte[KeyboardReportLength];
 
-    public static byte[] Mouse(MouseButtons buttons, int dx, int dy, int wheel) =>
-    [
-        (byte)buttons,
-        unchecked((byte)(sbyte)Math.Clamp(dx, -127, 127)),
-        unchecked((byte)(sbyte)Math.Clamp(dy, -127, 127)),
-        unchecked((byte)(sbyte)Math.Clamp(wheel, -127, 127))
-    ];
+    public static byte[] Mouse(MouseButtons buttons, int dx, int dy, int wheel)
+    {
+        var x = (short)Math.Clamp(dx, -32767, 32767);
+        var y = (short)Math.Clamp(dy, -32767, 32767);
+        return
+        [
+            (byte)buttons,
+            (byte)(x & 0xFF), (byte)((x >> 8) & 0xFF),
+            (byte)(y & 0xFF), (byte)((y >> 8) & 0xFF),
+            unchecked((byte)(sbyte)Math.Clamp(wheel, -127, 127))
+        ];
+    }
 
     /// <summary>Maps a printable ASCII character to its HID usage ID and required modifiers.</summary>
     public static bool TryMapChar(char c, out byte usage, out KeyModifiers modifiers)

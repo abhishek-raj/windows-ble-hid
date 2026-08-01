@@ -44,6 +44,7 @@ Console.WriteLine($"""
       scroll <n>           scroll wheel
       capture              redirect local keyboard+mouse (Ctrl+Alt+Q to stop)
       capture verbose      same, with per-report timing diagnostics
+      capture <ms>         same, with a custom pointer report interval
       status               show subscriber counts
       peers                list connected Bluetooth peers
       appearance           advertise GAP appearance = keyboard
@@ -85,7 +86,15 @@ while (true)
                     break;
                 }
 
-                var verbose = argument.Trim().Equals("verbose", StringComparison.OrdinalIgnoreCase);
+                var captureArgs = argument.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var verbose = captureArgs.Any(a => a.Equals("verbose", StringComparison.OrdinalIgnoreCase));
+                // A BLE link carries one packet per connection interval, so reports are paced
+                // to that rate; sending faster just queues in the controller and adds latency.
+                var mouseIntervalMs = captureArgs.Select(a => int.TryParse(a, out var v) ? v : 0)
+                                                 .FirstOrDefault(v => v > 0);
+                if (mouseIntervalMs <= 0) mouseIntervalMs = 10;
+                Console.WriteLine($"  pointer report interval: {mouseIntervalMs} ms");
+
                 using var capture = new InputCapture { Verbose = verbose };
                 var stopped = new TaskCompletionSource();
 
@@ -98,58 +107,72 @@ while (true)
                 var mouseDirty = false;
                 var sent = 0;
 
+                // Signal-driven rather than polled: Task.Delay has ~15 ms granularity on
+                // Windows, which alone made pointer motion feel sluggish.
+                var signal = new SemaphoreSlim(0, 1);
+                void Wake()
+                {
+                    try { signal.Release(); }
+                    catch (SemaphoreFullException) { }
+                }
+
                 using var pumpCancellation = new CancellationTokenSource();
                 var pump = Task.Run(async () =>
                 {
                     var clock = System.Diagnostics.Stopwatch.StartNew();
                     var iterations = 0;
+                    long lastMouseSend = -1000;
                     if (verbose) Console.WriteLine("  [pump] started");
                     while (!pumpCancellation.IsCancellationRequested)
                     {
                         iterations++;
-                        var didWork = false;
                         try
                         {
-                            if (keyQueue.TryDequeue(out var key))
+                            await signal.WaitAsync(pumpCancellation.Token);
+                        }
+                        catch (OperationCanceledException) { break; }
+
+                        try
+                        {
+                            while (keyQueue.TryDequeue(out var key))
                             {
                                 var started = clock.ElapsedMilliseconds;
                                 await peripheral.SendKeyboardAsync(key.Modifiers, key.Usages);
                                 var elapsed = clock.ElapsedMilliseconds - started;
                                 if (verbose && sent < 40) Console.WriteLine($"  [pump] key notify #{sent} took {elapsed} ms");
                                 Interlocked.Increment(ref sent);
-                                didWork = true;
                             }
+
+                            bool hasMotion;
+                            lock (mouseLock) hasMotion = mouseDirty;
+                            if (!hasMotion) continue;
+
+                            var sinceLast = clock.ElapsedMilliseconds - lastMouseSend;
+                            if (sinceLast < mouseIntervalMs)
+                                await Task.Delay((int)(mouseIntervalMs - sinceLast), pumpCancellation.Token);
 
                             int dx, dy, wheel;
                             MouseButtons buttons;
-                            bool dirty;
                             lock (mouseLock)
                             {
                                 dx = pendingDx; dy = pendingDy; wheel = pendingWheel;
-                                buttons = pendingButtons; dirty = mouseDirty;
+                                buttons = pendingButtons;
                                 pendingDx = pendingDy = pendingWheel = 0;
                                 mouseDirty = false;
                             }
 
-                            if (dirty)
                             {
                                 var started = clock.ElapsedMilliseconds;
                                 await peripheral.SendMouseAsync(buttons, dx, dy, wheel);
-                                var elapsed = clock.ElapsedMilliseconds - started;
-                                if (verbose && sent < 40) Console.WriteLine($"  [pump] mouse notify #{sent} ({dx},{dy}) took {elapsed} ms");
+                                lastMouseSend = clock.ElapsedMilliseconds;
+                                if (verbose && sent < 40) Console.WriteLine($"  [pump] mouse notify #{sent} ({dx},{dy}) took {lastMouseSend - started} ms");
                                 Interlocked.Increment(ref sent);
-                                didWork = true;
                             }
                         }
+                        catch (OperationCanceledException) { break; }
                         catch (Exception ex)
                         {
                             Console.WriteLine($"  [pump] send error: {ex}");
-                        }
-
-                        if (!didWork)
-                        {
-                            try { await Task.Delay(4, pumpCancellation.Token); }
-                            catch (OperationCanceledException) { break; }
                         }
                     }
 
@@ -158,7 +181,11 @@ while (true)
                 });
 
                 capture.Log += message => Console.WriteLine(message);
-                capture.KeyboardReport += (modifiers, usages) => keyQueue.Enqueue((modifiers, usages));
+                capture.KeyboardReport += (modifiers, usages) =>
+                {
+                    keyQueue.Enqueue((modifiers, usages));
+                    Wake();
+                };
                 capture.MouseReport += (buttons, dx, dy, wheel) =>
                 {
                     lock (mouseLock)
@@ -169,6 +196,7 @@ while (true)
                         pendingButtons = buttons;
                         mouseDirty = true;
                     }
+                    Wake();
                 };
                 capture.StopRequested += () => stopped.TrySetResult();
 
