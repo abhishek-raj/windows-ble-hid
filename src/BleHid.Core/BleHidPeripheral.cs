@@ -24,6 +24,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     private readonly GattProtectionLevel _protection;
     private readonly ConcurrentDictionary<string, string> _hostNames = new(StringComparer.OrdinalIgnoreCase);
     private string? _selectedHostId;
+    private bool _localOnly;
     private bool _warnedMissingHost;
     private TaskCompletionSource<bool>? _advertisingStarted;
     private GattServiceProvider? _provider;
@@ -44,9 +45,16 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     /// <summary>Null means reports are broadcast to every subscribed host.</summary>
     public string? SelectedHostId => _selectedHostId;
 
-    public string SelectedHostDisplay => _selectedHostId is null
-        ? "all hosts"
-        : Hosts().FirstOrDefault(h => h.DeviceId == _selectedHostId)?.Display ?? "(disconnected host)";
+    /// <summary>True when input should stay on this PC instead of going to any host.</summary>
+    public bool IsLocalTarget => _localOnly;
+
+    public string SelectedHostDisplay => _localOnly
+        ? LocalDisplay
+        : _selectedHostId is null
+            ? "all hosts"
+            : Hosts().FirstOrDefault(h => h.DeviceId == _selectedHostId)?.Display ?? "(disconnected host)";
+
+    private const string LocalDisplay = "this PC (input stays local)";
 
     public event Action<string>? Log;
 
@@ -301,33 +309,46 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         return ids.Select(id => new HostTarget(id, ShortAddress(id), _hostNames.GetValueOrDefault(id))).ToList();
     }
 
-    /// <summary>Cycles host1 -> host2 -> ... -> all hosts -> host1. Safe to call from any thread.</summary>
+    /// <summary>Cycles this PC -> host1 -> ... -> hostN -> this PC. Safe to call from any thread.</summary>
     public string SelectNextHost()
     {
         var hosts = Hosts();
         _warnedMissingHost = false;
-        if (hosts.Count == 0)
+
+        if (hosts.Count == 0) return SelectLocal();
+
+        // Broadcast is not in the rotation; it is a fallback reached through SelectAllHosts.
+        if (_localOnly)
         {
-            _selectedHostId = null;
-            return "all hosts (none connected)";
+            _localOnly = false;
+            _selectedHostId = hosts[0].DeviceId;
+            return hosts[0].Display;
         }
 
-        var next = _selectedHostId is null
-            ? 0
-            : hosts.Select((h, i) => (h, i)).FirstOrDefault(t => t.h.DeviceId == _selectedHostId).i + 1;
+        if (_selectedHostId is null) return SelectLocal();
 
-        if (next >= hosts.Count)
-        {
-            _selectedHostId = null;
-            return "all hosts";
-        }
+        var index = -1;
+        for (var i = 0; i < hosts.Count; i++)
+            if (string.Equals(hosts[i].DeviceId, _selectedHostId, StringComparison.OrdinalIgnoreCase)) { index = i; break; }
+
+        var next = index + 1;
+        if (next >= hosts.Count) return SelectLocal();
 
         _selectedHostId = hosts[next].DeviceId;
         return hosts[next].Display;
     }
 
+    public string SelectLocal()
+    {
+        _localOnly = true;
+        _selectedHostId = null;
+        _warnedMissingHost = false;
+        return LocalDisplay;
+    }
+
     public void SelectAllHosts()
     {
+        _localOnly = false;
         _selectedHostId = null;
         _warnedMissingHost = false;
     }
@@ -336,6 +357,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     {
         var hosts = Hosts();
         if (index < 0 || index >= hosts.Count) return false;
+        _localOnly = false;
         _selectedHostId = hosts[index].DeviceId;
         _warnedMissingHost = false;
         return true;
@@ -367,6 +389,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
 
     private async Task NotifyAsync(GattLocalCharacteristic? characteristic, byte[] payload)
     {
+        if (_localOnly) return;
         if (characteristic is null || characteristic.SubscribedClients.Count == 0) return;
 
         var buffer = CryptographicBuffer.CreateFromByteArray(payload);

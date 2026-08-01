@@ -32,6 +32,7 @@ public sealed class InputCapture : IDisposable
     private int _centerX, _centerY;
     private int _keyboardEvents, _mouseEvents;
     private bool _switchLatched;
+    private volatile bool _passThrough;
     private volatile bool _running;
 
     public event Action<KeyModifiers, byte[]>? KeyboardReport;
@@ -41,6 +42,17 @@ public sealed class InputCapture : IDisposable
     public event Action<string>? Log;
 
     public bool IsRunning => _running;
+
+    public bool PassThrough => _passThrough;
+
+    /// <summary>Lets local input through untouched; re-centres the cursor when redirect resumes
+    /// so the first delta is not the distance the pointer travelled locally.</summary>
+    public void SetPassThrough(bool value)
+    {
+        if (_passThrough == value) return;
+        _passThrough = value;
+        if (!value && _running) SetCursorPos(_centerX, _centerY);
+    }
 
     /// <summary>Logs every hook event and report; useful only for diagnosing delivery problems.</summary>
     public bool Verbose { get; init; }
@@ -76,7 +88,7 @@ public sealed class InputCapture : IDisposable
 
         _centerX = GetSystemMetrics(0) / 2;
         _centerY = GetSystemMetrics(1) / 2;
-        SetCursorPos(_centerX, _centerY);
+        if (!_passThrough) SetCursorPos(_centerX, _centerY);
 
         _keyboardProc = KeyboardHookProc;
         _mouseProc = MouseHookProc;
@@ -141,6 +153,9 @@ public sealed class InputCapture : IDisposable
             return 1;
         }
 
+        // Hotkeys stay live in pass-through, but nothing else is captured or swallowed.
+        if (_passThrough) return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+
         if (VirtualKeyMap.TryGetUsage(virtualKey, out var usage))
         {
             if (isDown) _pressedUsages.Add(usage);
@@ -163,6 +178,8 @@ public sealed class InputCapture : IDisposable
         var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
         if ((data.flags & LLMHF_INJECTED) != 0)
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+
+        if (_passThrough) return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
 
         _mouseEvents++;
 

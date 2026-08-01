@@ -46,7 +46,7 @@ Console.WriteLine($"""
       capture verbose      same, with per-report timing diagnostics
       capture <ms>         same, with a custom pointer report interval
       host                 list subscribed hosts and the current target
-      host <n|next|all>    choose which host receives input
+      host <n|next|local|all>  choose the target; local keeps input on this PC
       status               show subscriber counts
       peers                list connected Bluetooth peers
       appearance           advertise GAP appearance = keyboard (no effect on this stack)
@@ -104,7 +104,7 @@ while (true)
                 // rather than the proportional 20 ms.
                 int PointerIntervalMs()
                 {
-                    var hosts = peripheral.SelectedHostId is null
+                    var hosts = peripheral.SelectedHostId is null && !peripheral.IsLocalTarget
                         ? Math.Max(1, peripheral.SubscribedMouseClients)
                         : 1;
                     return hosts > 1 ? mouseIntervalMs * 2 * hosts : mouseIntervalMs;
@@ -158,7 +158,9 @@ while (true)
                                 if (key.Usages is null)
                                 {
                                     await peripheral.RefreshHostNamesAsync();
-                                    Console.WriteLine($"  [host] -> {peripheral.SelectNextHost()}");
+                                    var target = peripheral.SelectNextHost();
+                                    capture.SetPassThrough(peripheral.IsLocalTarget);
+                                    Console.WriteLine($"  [host] -> {target}");
                                     continue;
                                 }
 
@@ -236,8 +238,9 @@ while (true)
                 };
 
                 await peripheral.RefreshHostNamesAsync();
+                capture.SetPassThrough(peripheral.IsLocalTarget);
                 Console.WriteLine($"  sending to: {peripheral.SelectedHostDisplay}");
-                Console.WriteLine("  capturing - local input is redirected. Ctrl+D+C switches host, Ctrl+Alt+Q stops.");
+                Console.WriteLine("  capturing - Ctrl+D+C switches target, Ctrl+Alt+Q stops.");
                 capture.Start();
                 await stopped.Task;
                 capture.Stop();
@@ -328,6 +331,8 @@ while (true)
 
                 if (trimmed.Equals("next", StringComparison.OrdinalIgnoreCase))
                     Console.WriteLine($"  -> {peripheral.SelectNextHost()}");
+                else if (trimmed.Equals("local", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine($"  -> {peripheral.SelectLocal()}");
                 else if (trimmed.Equals("all", StringComparison.OrdinalIgnoreCase))
                 {
                     peripheral.SelectAllHosts();
