@@ -42,13 +42,18 @@ Console.WriteLine($"""
       move <dx> <dy>       move the pointer
       click <l|r|m>        click a mouse button
       scroll <n>           scroll wheel
-      capture              redirect local keyboard+mouse (Ctrl+Alt+Q to stop)
+      capture              redirect local keyboard+mouse (Ctrl+D+C switch host, Ctrl+Alt+Q stop)
       capture verbose      same, with per-report timing diagnostics
       capture <ms>         same, with a custom pointer report interval
+      host                 list subscribed hosts and the current target
+      host <n|next|all>    choose which host receives input
       status               show subscriber counts
       peers                list connected Bluetooth peers
-      appearance           advertise GAP appearance = keyboard
+      appearance           advertise GAP appearance = keyboard (no effect on this stack)
       burst <n>            time <n> raw mouse notifies (link diagnostic)
+      watch <secs>         log connection/subscription changes as they happen
+      probe <uuid16>       try to create a GATT service, e.g. probe 1801
+      classic <on|off>     toggle BR/EDR connectable (fails with E_INVALIDARG on this stack)
       quit                 exit
 
     """);
@@ -93,14 +98,28 @@ while (true)
                 var mouseIntervalMs = captureArgs.Select(a => int.TryParse(a, out var v) ? v : 0)
                                                  .FirstOrDefault(v => v > 0);
                 if (mouseIntervalMs <= 0) mouseIntervalMs = 10;
-                Console.WriteLine($"  pointer report interval: {mouseIntervalMs} ms");
+
+                // Broadcast duplicates every report onto each link, and interleaving connection
+                // events costs more than a proportional share: measured, 2 hosts needed 40 ms
+                // rather than the proportional 20 ms.
+                int PointerIntervalMs()
+                {
+                    var hosts = peripheral.SelectedHostId is null
+                        ? Math.Max(1, peripheral.SubscribedMouseClients)
+                        : 1;
+                    return hosts > 1 ? mouseIntervalMs * 2 * hosts : mouseIntervalMs;
+                }
+
+                Console.WriteLine($"  pointer report interval: {PointerIntervalMs()} ms");
 
                 using var capture = new InputCapture { Verbose = verbose };
                 var stopped = new TaskCompletionSource();
 
                 // Keystrokes must all be delivered, but pointer motion is coalesced:
                 // the hook produces far more events than the BLE link can carry.
-                var keyQueue = new System.Collections.Concurrent.ConcurrentQueue<(KeyModifiers Modifiers, byte[] Usages)>();
+                // A null Usages entry is the host-switch marker, queued so it takes effect
+                // only after the key-release report has gone to the previous host.
+                var keyQueue = new System.Collections.Concurrent.ConcurrentQueue<(KeyModifiers Modifiers, byte[]? Usages)>();
                 var mouseLock = new object();
                 int pendingDx = 0, pendingDy = 0, pendingWheel = 0;
                 var pendingButtons = MouseButtons.None;
@@ -136,6 +155,13 @@ while (true)
                         {
                             while (keyQueue.TryDequeue(out var key))
                             {
+                                if (key.Usages is null)
+                                {
+                                    await peripheral.RefreshHostNamesAsync();
+                                    Console.WriteLine($"  [host] -> {peripheral.SelectNextHost()}");
+                                    continue;
+                                }
+
                                 var started = clock.ElapsedMilliseconds;
                                 await peripheral.SendKeyboardAsync(key.Modifiers, key.Usages);
                                 var elapsed = clock.ElapsedMilliseconds - started;
@@ -147,9 +173,13 @@ while (true)
                             lock (mouseLock) hasMotion = mouseDirty;
                             if (!hasMotion) continue;
 
+                            // NotifyValueAsync returns on queueing, so overshoot is invisible
+                            // here and shows up as pointer drift after the user stops moving.
+                            var interval = PointerIntervalMs();
+
                             var sinceLast = clock.ElapsedMilliseconds - lastMouseSend;
-                            if (sinceLast < mouseIntervalMs)
-                                await Task.Delay((int)(mouseIntervalMs - sinceLast), pumpCancellation.Token);
+                            if (sinceLast < interval)
+                                await Task.Delay((int)(interval - sinceLast), pumpCancellation.Token);
 
                             int dx, dy, wheel;
                             MouseButtons buttons;
@@ -199,8 +229,15 @@ while (true)
                     Wake();
                 };
                 capture.StopRequested += () => stopped.TrySetResult();
+                capture.SwitchHostRequested += () =>
+                {
+                    keyQueue.Enqueue((KeyModifiers.None, null));
+                    Wake();
+                };
 
-                Console.WriteLine("  capturing - local input is redirected. Press Ctrl+Alt+Q to stop.");
+                await peripheral.RefreshHostNamesAsync();
+                Console.WriteLine($"  sending to: {peripheral.SelectedHostDisplay}");
+                Console.WriteLine("  capturing - local input is redirected. Ctrl+D+C switches host, Ctrl+Alt+Q stops.");
                 capture.Start();
                 await stopped.Task;
                 capture.Stop();
@@ -208,6 +245,65 @@ while (true)
                 try { await pump; } catch (OperationCanceledException) { }
                 await peripheral.ReleaseKeysAsync();
                 Console.WriteLine($"  capture stopped. keyboard events={capture.KeyboardEvents}, mouse events={capture.MouseEvents}, reports sent={sent}");
+                break;
+            }
+
+            case "classic":
+            {
+                if (argument is "off" or "on")
+                {
+                    var enable = argument == "on";
+                    // Order matters: a non-connectable radio must already be non-discoverable.
+                    if (enable)
+                    {
+                        Console.WriteLine($"  incoming connections -> on  (result {ClassicRadio.SetIncomingConnections(true)})");
+                        Console.WriteLine($"  discoverable         -> on  (result {ClassicRadio.SetDiscoverable(true)})");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"  discoverable         -> off (result {ClassicRadio.SetDiscoverable(false)})");
+                        Console.WriteLine($"  incoming connections -> off (result {ClassicRadio.SetIncomingConnections(false)})");
+                    }
+                }
+                Console.WriteLine($"  connectable  : {ClassicRadio.IsConnectable}");
+                Console.WriteLine($"  discoverable : {ClassicRadio.IsDiscoverable}");
+                break;
+            }
+
+            case "probe":
+            {
+                if (!ushort.TryParse(argument.Trim(), System.Globalization.NumberStyles.HexNumber, null, out var uuid16))
+                {
+                    Console.WriteLine("  usage: probe <4-digit hex uuid>, e.g. probe 1801");
+                    break;
+                }
+                var (service, characteristic) = await ServiceProbe.TryCreateAsync(uuid16);
+                Console.WriteLine($"  service 0x{uuid16:X4}: {service}");
+                if (characteristic is not null) Console.WriteLine($"  service changed 0x2A05: {characteristic}");
+                break;
+            }
+
+            case "watch":
+            {
+                var seconds = int.TryParse(argument, out var requested) && requested > 0 ? requested : 120;
+                Console.WriteLine($"  watching for {seconds}s - reporting only changes");
+
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var previous = string.Empty;
+                while (clock.Elapsed.TotalSeconds < seconds)
+                {
+                    var connectedLe = await BluetoothDiagnostics.ListConnectedLeDevicesAsync();
+                    var connectedClassic = await BluetoothDiagnostics.ListConnectedClassicDevicesAsync();
+                    var snapshot = $"k={peripheral.SubscribedKeyboardClients} m={peripheral.SubscribedMouseClients}"
+                                 + $" | LE: {string.Join(", ", connectedLe)} | classic: {string.Join(", ", connectedClassic)}";
+                    if (snapshot != previous)
+                    {
+                        Console.WriteLine($"  [{clock.Elapsed:mm\\:ss}] {snapshot}");
+                        previous = snapshot;
+                    }
+                    await Task.Delay(1000);
+                }
+                Console.WriteLine("  watch finished");
                 break;
             }
 
@@ -225,12 +321,49 @@ while (true)
                 break;
             }
 
+            case "host":
+            {
+                await peripheral.RefreshHostNamesAsync();
+                var trimmed = argument.Trim();
+
+                if (trimmed.Equals("next", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine($"  -> {peripheral.SelectNextHost()}");
+                else if (trimmed.Equals("all", StringComparison.OrdinalIgnoreCase))
+                {
+                    peripheral.SelectAllHosts();
+                    Console.WriteLine("  -> all hosts");
+                }
+                else if (int.TryParse(trimmed, out var index) && !peripheral.SelectHost(index - 1))
+                    Console.WriteLine("  no host with that number");
+
+                var hosts = peripheral.Hosts();
+                Console.WriteLine($"  sending to: {peripheral.SelectedHostDisplay}");
+                for (var i = 0; i < hosts.Count; i++)
+                {
+                    var marker = hosts[i].DeviceId == peripheral.SelectedHostId ? "*" : " ";
+                    Console.WriteLine($"  {marker} {i + 1}. {hosts[i].Display}");
+                }
+                if (hosts.Count == 0) Console.WriteLine("    (no subscribed hosts)");
+                break;
+            }
+
             case "status":
+            {
                 Console.WriteLine($"  advertisement : {peripheral.AdvertisementStatus}");
                 Console.WriteLine($"  appearance adv: {appearance.Status}");
                 Console.WriteLine($"  keyboard subs : {peripheral.SubscribedKeyboardClients}");
                 Console.WriteLine($"  mouse subs    : {peripheral.SubscribedMouseClients}");
+                Console.WriteLine($"  sending to    : {peripheral.SelectedHostDisplay}");
+
+                // BR/EDR links are usually incidental (CDP/Phone Link, audio) and unrelated to HID.
+                var brEdrPeers = await BluetoothDiagnostics.ListConnectedClassicDevicesAsync();
+                if (brEdrPeers.Count > 0)
+                {
+                    Console.WriteLine($"  BR/EDR peers ({brEdrPeers.Count}) - only a problem if a host is missing from subs:");
+                    foreach (var peer in brEdrPeers) Console.WriteLine($"    {peer}");
+                }
                 break;
+            }
 
             case "peers":
                 var le = await BluetoothDiagnostics.ListConnectedLeDevicesAsync();

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Foundation;
@@ -8,6 +9,12 @@ namespace BleHid.Core;
 
 public sealed record PeripheralDiagnostics(string Step, string Detail, bool Ok);
 
+/// <summary>A host that has subscribed to input reports and can be targeted individually.</summary>
+public sealed record HostTarget(string DeviceId, string Address, string? Name)
+{
+    public string Display => Name is { Length: > 0 } ? $"{Name} [{Address}]" : Address;
+}
+
 /// <summary>
 /// Exposes this PC as a BLE HID keyboard + mouse (HID over GATT) using the in-box Windows stack.
 /// </summary>
@@ -15,6 +22,9 @@ public sealed class BleHidPeripheral : IAsyncDisposable
 {
     private readonly List<PeripheralDiagnostics> _diagnostics = [];
     private readonly GattProtectionLevel _protection;
+    private readonly ConcurrentDictionary<string, string> _hostNames = new(StringComparer.OrdinalIgnoreCase);
+    private string? _selectedHostId;
+    private bool _warnedMissingHost;
     private TaskCompletionSource<bool>? _advertisingStarted;
     private GattServiceProvider? _provider;
     private GattServiceProvider? _batteryProvider;
@@ -30,6 +40,13 @@ public sealed class BleHidPeripheral : IAsyncDisposable
 
     public int SubscribedKeyboardClients => _keyboardInput?.SubscribedClients.Count ?? 0;
     public int SubscribedMouseClients => _mouseInput?.SubscribedClients.Count ?? 0;
+
+    /// <summary>Null means reports are broadcast to every subscribed host.</summary>
+    public string? SelectedHostId => _selectedHostId;
+
+    public string SelectedHostDisplay => _selectedHostId is null
+        ? "all hosts"
+        : Hosts().FirstOrDefault(h => h.DeviceId == _selectedHostId)?.Display ?? "(disconnected host)";
 
     public event Action<string>? Log;
 
@@ -274,10 +291,105 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         return NotifyAsync(_mouseInput, _lastMouseReport);
     }
 
-    private static async Task NotifyAsync(GattLocalCharacteristic? characteristic, byte[] payload)
+    /// <summary>Subscribed hosts, de-duplicated across the keyboard and mouse reports.</summary>
+    public IReadOnlyList<HostTarget> Hosts()
+    {
+        var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var client in _keyboardInput?.SubscribedClients ?? []) ids.Add(client.Session.DeviceId.Id);
+        foreach (var client in _mouseInput?.SubscribedClients ?? []) ids.Add(client.Session.DeviceId.Id);
+
+        return ids.Select(id => new HostTarget(id, ShortAddress(id), _hostNames.GetValueOrDefault(id))).ToList();
+    }
+
+    /// <summary>Cycles host1 -> host2 -> ... -> all hosts -> host1. Safe to call from any thread.</summary>
+    public string SelectNextHost()
+    {
+        var hosts = Hosts();
+        _warnedMissingHost = false;
+        if (hosts.Count == 0)
+        {
+            _selectedHostId = null;
+            return "all hosts (none connected)";
+        }
+
+        var next = _selectedHostId is null
+            ? 0
+            : hosts.Select((h, i) => (h, i)).FirstOrDefault(t => t.h.DeviceId == _selectedHostId).i + 1;
+
+        if (next >= hosts.Count)
+        {
+            _selectedHostId = null;
+            return "all hosts";
+        }
+
+        _selectedHostId = hosts[next].DeviceId;
+        return hosts[next].Display;
+    }
+
+    public void SelectAllHosts()
+    {
+        _selectedHostId = null;
+        _warnedMissingHost = false;
+    }
+
+    public bool SelectHost(int index)
+    {
+        var hosts = Hosts();
+        if (index < 0 || index >= hosts.Count) return false;
+        _selectedHostId = hosts[index].DeviceId;
+        _warnedMissingHost = false;
+        return true;
+    }
+
+    /// <summary>Resolves friendly names for subscribed hosts so they can be shown while switching.</summary>
+    public async Task RefreshHostNamesAsync()
+    {
+        foreach (var host in Hosts())
+        {
+            if (_hostNames.ContainsKey(host.DeviceId)) continue;
+            try
+            {
+                using var device = await BluetoothLEDevice.FromIdAsync(host.DeviceId);
+                if (!string.IsNullOrWhiteSpace(device?.Name)) _hostNames[host.DeviceId] = device.Name;
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke($"[host] could not resolve name for {host.Address}: {ex.Message}");
+            }
+        }
+    }
+
+    private static string ShortAddress(string deviceId)
+    {
+        var separator = deviceId.LastIndexOf('-');
+        return separator >= 0 && separator < deviceId.Length - 1 ? deviceId[(separator + 1)..] : deviceId;
+    }
+
+    private async Task NotifyAsync(GattLocalCharacteristic? characteristic, byte[] payload)
     {
         if (characteristic is null || characteristic.SubscribedClients.Count == 0) return;
-        await characteristic.NotifyValueAsync(CryptographicBuffer.CreateFromByteArray(payload));
+
+        var buffer = CryptographicBuffer.CreateFromByteArray(payload);
+        var target = _selectedHostId;
+        if (target is null)
+        {
+            await characteristic.NotifyValueAsync(buffer);
+            return;
+        }
+
+        foreach (var client in characteristic.SubscribedClients)
+        {
+            if (!string.Equals(client.Session.DeviceId.Id, target, StringComparison.OrdinalIgnoreCase)) continue;
+            await characteristic.NotifyValueAsync(buffer, client);
+            return;
+        }
+
+        // Dropping is safer than falling back to broadcast: the input was meant for one host.
+        if (!_warnedMissingHost)
+        {
+            _warnedMissingHost = true;
+            Log?.Invoke("[host] selected host is no longer subscribed - reports are being dropped");
+        }
     }
 
     private static byte[] ReadBytes(IBuffer buffer)

@@ -31,10 +31,12 @@ public sealed class InputCapture : IDisposable
     private MouseButtons _buttons;
     private int _centerX, _centerY;
     private int _keyboardEvents, _mouseEvents;
+    private bool _switchLatched;
     private volatile bool _running;
 
     public event Action<KeyModifiers, byte[]>? KeyboardReport;
     public event Action<MouseButtons, int, int, int>? MouseReport;
+    public event Action? SwitchHostRequested;
     public event Action? StopRequested;
     public event Action<string>? Log;
 
@@ -122,6 +124,20 @@ public sealed class InputCapture : IDisposable
             _pressedVirtualKeys.Clear();
             KeyboardReport?.Invoke(KeyModifiers.None, []);
             StopRequested?.Invoke();
+            return 1;
+        }
+
+        // Ctrl+D+C switches host. Latched so key auto-repeat cannot cycle past the target.
+        if (!isDown && virtualKey is 0x44 or 0x43) _switchLatched = false;
+        if (isDown && IsDown(0x11) && _pressedVirtualKeys.Contains(0x44) && _pressedVirtualKeys.Contains(0x43))
+        {
+            if (!_switchLatched)
+            {
+                _switchLatched = true;
+                _pressedUsages.Clear();
+                KeyboardReport?.Invoke(KeyModifiers.None, []);
+                SwitchHostRequested?.Invoke();
+            }
             return 1;
         }
 
