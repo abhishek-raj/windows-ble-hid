@@ -35,7 +35,9 @@ jobs:
           -o artifacts/${{ matrix.rid }}
 
       - name: Package
-        run: Compress-Archive -Path artifacts/${{ matrix.rid }}/BleHid.Cli.exe -DestinationPath BleHid-${{ matrix.rid }}.zip
+        run: |
+          Copy-Item LICENSE, README.md artifacts/${{ matrix.rid }}
+          Compress-Archive -Path artifacts/${{ matrix.rid }}/* -DestinationPath BleHid-${{ matrix.rid }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
