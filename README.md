@@ -38,6 +38,17 @@ the standard HID over GATT Profile (HOGP).
 
 ---
 
+## Download
+
+Prebuilt `win-x64` and `win-arm64` executables are attached to each
+[release](../../releases). They are self-contained single files — no .NET runtime needed.
+Unzip and run `BleHid.Cli.exe`.
+
+The binaries are **unsigned**, so SmartScreen will warn on first launch
+(*More info → Run anyway*). Build from source if you would rather not trust them.
+
+---
+
 ## Build and run
 
 ```powershell
