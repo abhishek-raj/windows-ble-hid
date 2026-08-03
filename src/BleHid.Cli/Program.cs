@@ -53,6 +53,7 @@ Console.WriteLine($"""
       burst <n>            time <n> raw mouse notifies (link diagnostic)
       watch <secs>         log connection/subscription changes as they happen
       probe <uuid16>       try to create a GATT service, e.g. probe 1801
+      l2cap                test if user mode can listen on Classic HID L2CAP PSMs
       classic <on|off>     toggle BR/EDR connectable (fails with E_INVALIDARG on this stack)
       quit                 exit
 
@@ -270,6 +271,12 @@ while (true)
                 }
                 Console.WriteLine($"  connectable  : {ClassicRadio.IsConnectable}");
                 Console.WriteLine($"  discoverable : {ClassicRadio.IsDiscoverable}");
+                break;
+            }
+
+            case "l2cap":
+            {
+                foreach (var result in L2capProbe.Run()) Console.WriteLine($"  {result}");
                 break;
             }
 
