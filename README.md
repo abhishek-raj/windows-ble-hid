@@ -265,3 +265,9 @@ A few decisions worth knowing if you read the code:
 - Test iPhone / iPad, smart TV and Linux hosts
 - Consumer-control and media keys
 - A UI — the console interface is deliberately the first step
+
+---
+
+## License
+
+[MIT](LICENSE)
