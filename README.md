@@ -15,10 +15,11 @@ the standard HID over GATT Profile (HOGP).
 
 ## What it does
 
+- **Redirects your real keyboard and mouse** to the paired device via low-level Win32
+  hooks — the `capture` command, and the main way you use the app. Input is swallowed
+  locally while redirecting.
 - Exposes the PC as a **composite BLE HID device** — keyboard (Report ID 1) and mouse
   (Report ID 2) in a single HOGP service.
-- **Redirects your real keyboard and mouse** to the paired device via low-level Win32
-  hooks. Input is swallowed locally while redirecting.
 - **Multiple hosts at once.** Several devices can be paired and connected simultaneously.
 - **Per-host switching** with a hotkey, including a "this PC" position so you can hop
   between your own machine and the remotes without stopping capture.
@@ -49,6 +50,26 @@ The binaries are **unsigned**, so SmartScreen will warn on first launch
 
 ---
 
+## Quick start
+
+1. Run `BleHid.Cli.exe`. It publishes the GATT services and starts advertising
+   immediately.
+2. On the device you want to control, pair with the PC from its Bluetooth settings — the
+   PC appears under its own hostname.
+3. Type **`capture`** and press Enter.
+
+`capture` is the command you actually use. Your real keyboard and mouse now drive the
+paired device instead of this PC.
+
+| While capturing | |
+| --- | --- |
+| `Ctrl` + `Alt` + `Q` | Stop and return control to this PC |
+| `Ctrl` + `D` + `C` | Switch which device you are driving, including back to this PC |
+
+Everything else in the app is either scripted input (`type`, `move`) or diagnostics.
+
+---
+
 ## Build and run
 
 ```powershell
@@ -56,8 +77,7 @@ dotnet build src\BleHid.Cli\BleHid.Cli.csproj
 dotnet run   --project src\BleHid.Cli\BleHid.Cli.csproj
 ```
 
-On startup the app publishes the GATT services and begins advertising. Pair from the other
-device's Bluetooth settings — the PC appears under its own hostname.
+Then follow the Quick start above.
 
 Run with `--plain` to drop the encryption requirement on the HID characteristics. HOGP
 mandates encryption, so this is a diagnostic aid rather than a normal mode.
@@ -69,26 +89,16 @@ rebuilding, or the build fails with `MSB3026`.
 
 ## Commands
 
+### Main
+
 | Command | Description |
 | --- | --- |
-| `type <text>` | Send a string as keystrokes |
-| `key <name>` | Press a named key (`enter`, `esc`, `up`, `f5`, …) |
-| `move <dx> <dy>` | Move the pointer |
-| `click <l\|r\|m>` | Click a mouse button |
-| `scroll <n>` | Scroll the wheel |
-| `capture` | Redirect the local keyboard and mouse |
+| **`capture`** | **Redirect the local keyboard and mouse — the primary command** |
 | `capture verbose` | Same, with per-report timing diagnostics |
 | `capture <ms>` | Same, with a custom pointer report interval |
 | `host` | List subscribed hosts and the current target |
 | `host <n\|next\|local\|all>` | Choose the target |
 | `status` | Advertisement state, subscriber counts, current target |
-| `peers` | List connected Bluetooth peers (LE and Classic) |
-| `burst <n>` | Time *n* raw notifications — link diagnostic |
-| `watch <secs>` | Log connection and subscription changes as they happen |
-| `probe <uuid16>` | Try to create a GATT service, e.g. `probe 1801` |
-| `l2cap` | Test whether user mode can open Classic HID L2CAP PSMs |
-| `appearance` | Attempt to advertise GAP appearance = keyboard |
-| `classic <on\|off>` | Attempt to toggle BR/EDR connectable |
 | `quit` | Exit |
 
 ### Hotkeys while capturing
@@ -100,6 +110,30 @@ rebuilding, or the build fails with `MSB3026`.
 
 When the target is **this PC**, input passes through untouched so you can use your own
 machine normally. The hotkeys stay live in that mode.
+
+### Scripted input
+
+Useful for automation or for testing the link without handing over your keyboard.
+
+| Command | Description |
+| --- | --- |
+| `type <text>` | Send a string as keystrokes |
+| `key <name>` | Press a named key (`enter`, `esc`, `up`, `f5`, …) |
+| `move <dx> <dy>` | Move the pointer |
+| `click <l\|r\|m>` | Click a mouse button |
+| `scroll <n>` | Scroll the wheel |
+
+### Diagnostics
+
+| Command | Description |
+| --- | --- |
+| `peers` | List connected Bluetooth peers (LE and Classic) |
+| `burst <n>` | Time *n* raw notifications — link diagnostic |
+| `watch <secs>` | Log connection and subscription changes as they happen |
+| `probe <uuid16>` | Try to create a GATT service, e.g. `probe 1801` |
+| `l2cap` | Test whether user mode can open Classic HID L2CAP PSMs |
+| `appearance` | Attempt to advertise GAP appearance = keyboard |
+| `classic <on\|off>` | Attempt to toggle BR/EDR connectable |
 
 ---
 
