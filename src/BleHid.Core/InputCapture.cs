@@ -12,6 +12,9 @@ public sealed class InputCapture : IDisposable
     private const int WH_MOUSE_LL = 14;
     private const int HC_ACTION = 0;
     private const uint LLMHF_INJECTED = 0x01;
+    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
 
     private const int WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101;
     private const int WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
@@ -25,12 +28,13 @@ public sealed class InputCapture : IDisposable
     private readonly HashSet<int> _pressedVirtualKeys = [];
     private LowLevelProc? _keyboardProc;
     private LowLevelProc? _mouseProc;
-    private IntPtr _keyboardHook, _mouseHook;
+    private WinEventProc? _winEventProc;
+    private IntPtr _keyboardHook, _mouseHook, _winEventHook;
     private Thread? _thread;
     private uint _threadId;
     private MouseButtons _buttons;
     private int _centerX, _centerY;
-    private int _keyboardEvents, _mouseEvents;
+    private int _keyboardEvents, _mouseEvents, _rearms;
     private bool _switchLatched;
     private volatile bool _passThrough;
     private volatile bool _running;
@@ -59,6 +63,7 @@ public sealed class InputCapture : IDisposable
 
     public int KeyboardEvents => _keyboardEvents;
     public int MouseEvents => _mouseEvents;
+    public int Rearms => _rearms;
 
     public void Start()
     {
@@ -101,6 +106,12 @@ public sealed class InputCapture : IDisposable
 
         Log?.Invoke($"  [hook] keyboard=0x{_keyboardHook:x} (err {keyboardError}), mouse=0x{_mouseHook:x} (err {mouseError}), center={_centerX},{_centerY}");
 
+        // Hook chains run newest-first, so apps that grab input (Windows App / mstsc, some games)
+        // win simply by hooking after us. Re-installing on focus change puts us back in front.
+        _winEventProc = ForegroundChanged;
+        _winEventHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
+            _winEventProc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
         int result;
         while ((result = GetMessage(out var message, IntPtr.Zero, 0, 0)) > 0)
         {
@@ -109,12 +120,28 @@ public sealed class InputCapture : IDisposable
         }
 
         if (Verbose)
-            Log?.Invoke($"  [hook] message loop exited ({result}), keyboard events={_keyboardEvents}, mouse events={_mouseEvents}");
+            Log?.Invoke($"  [hook] message loop exited ({result}), keyboard events={_keyboardEvents}, mouse events={_mouseEvents}, rearms={_rearms}");
 
+        if (_winEventHook != IntPtr.Zero) UnhookWinEvent(_winEventHook);
         if (_keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHook);
         if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
-        _keyboardHook = _mouseHook = IntPtr.Zero;
+        _keyboardHook = _mouseHook = _winEventHook = IntPtr.Zero;
         timeEndPeriod(1);
+    }
+
+    private void ForegroundChanged(IntPtr hook, uint eventType, IntPtr window, int idObject, int idChild, uint thread, uint time)
+    {
+        if (!_running || idObject != 0 /* OBJID_WINDOW */) return;
+
+        var module = GetModuleHandle(null);
+        if (_keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHook);
+        _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc!, module, 0);
+        if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
+        _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc!, module, 0);
+        _rearms++;
+
+        if (Verbose)
+            Log?.Invoke($"  [hook] re-armed after focus change (keyboard=0x{_keyboardHook:x}, mouse=0x{_mouseHook:x}, rearms={_rearms})");
     }
 
     private IntPtr KeyboardHookProc(int code, IntPtr wParam, IntPtr lParam)
@@ -237,6 +264,8 @@ public sealed class InputCapture : IDisposable
 
     private delegate IntPtr LowLevelProc(int code, IntPtr wParam, IntPtr lParam);
 
+    private delegate void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int x; public int y; }
 
@@ -267,6 +296,13 @@ public sealed class InputCapture : IDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+        WinEventProc lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 
     [DllImport("winmm.dll")]
     private static extern uint timeBeginPeriod(uint uPeriod);

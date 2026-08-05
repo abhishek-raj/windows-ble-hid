@@ -213,6 +213,31 @@ Whichever of `D` or `C` you press first reaches the current target before the co
 completes. Press `D` first — `Ctrl`+`D` is harmless in most applications, whereas
 `Ctrl`+`C` would copy.
 
+At the `>` prompt — that is, when *not* capturing — `Ctrl`+`D` is console EOF and exits the
+app. The hotkey only means "switch host" while capture is running.
+
+### Apps that grab the keyboard can win the hook chain
+
+Low-level hook chains run **newest-first**, so an app that installs its own
+`WH_KEYBOARD_LL` hook after this one — Windows App / `mstsc`, some games and remote-desktop
+clients — is called first and can swallow the hotkey before it ever arrives.
+
+The fix is to re-install both hooks on every foreground change (`SetWinEventHook` on
+`EVENT_SYSTEM_FOREGROUND`), which puts this app back at the head of the chain whenever you
+switch windows. Verified against Windows App: `Ctrl`+`D`+`C` switches correctly with the
+remote session focused.
+
+Two cases this does *not* solve:
+
+- **Elevation.** If the grabbing app runs at a higher integrity level than this one, its
+  input never reaches this app's hook at all. Run as administrator to match it.
+- **A competing re-arm.** If the other app also re-installs on focus, whoever hooks last
+  wins and the result is a race.
+
+Many remote-desktop clients also have a setting for whether shortcuts go to the local PC or
+the remote session, and typically grab everything only in full screen. Changing that is
+cheaper than winning the hook chain.
+
 ### Other limitations
 
 - **No control over the LE identity address.** The peripheral shares the radio's public
