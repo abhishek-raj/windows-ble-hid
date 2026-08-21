@@ -55,7 +55,9 @@ The binaries are **unsigned**, so SmartScreen will warn on first launch
 1. Run `BleHid.Cli.exe`. It publishes the GATT services and starts advertising
    immediately.
 2. On the device you want to control, pair with the PC from its Bluetooth settings — the
-   PC appears under its own hostname.
+   PC appears under its own hostname. A Windows host lists the same machine twice; pick the
+   entry shown as a **PC**, not the audio one, or the bond lands on Classic and nothing
+   works ([details](#a-windows-host-can-pair-to-the-wrong-entry)).
 3. Type **`capture`** and press Enter.
 
 `capture` is the command you actually use. Your real keyboard and mouse now drive the
@@ -67,6 +69,40 @@ paired device instead of this PC.
 | `Ctrl` + `D` + `C` | Switch which device you are driving, including back to this PC |
 
 Everything else in the app is either scripted input (`type`, `move`) or diagnostics.
+
+---
+
+## Background mode
+
+Two reasons to use it. Convenience: the peripheral is already up and the hotkeys already
+live, so switching to another machine costs one keystroke instead of opening a console and
+starting a session. And it sidesteps the [Windows reconnect
+limitation](#a-windows-host-will-not-reconnect-after-the-app-restarts) — one long-lived
+peripheral means no restarts for a bonded host to fail to recover from.
+
+```powershell
+BleHid.Cli.exe --background          # run detached, no console window
+BleHid.Cli.exe --stop                # shut it down
+BleHid.Cli.exe --install-autostart   # run at login (per-user, no admin)
+BleHid.Cli.exe --remove-autostart
+```
+
+Auto-start is opt-in. Nothing is written to the `Run` key unless you run
+`--install-autostart` yourself, and `--remove-autostart` undoes it.
+
+It starts on the **local** target, so your keyboard and mouse behave normally until you
+pick a host. From there it is hotkeys only — there is no console to type into:
+
+| Hotkey | Action |
+| --- | --- |
+| `Ctrl` + `D` + `C` | Switch target: this PC → host 1 → … → host N → this PC |
+| `Ctrl` + `Alt` + `Q` | Return input to this PC (does **not** exit — use `--stop`) |
+
+Only one instance runs at a time; a second `--background` is refused. Output goes to
+`%LOCALAPPDATA%\BleHid\blehid.log`.
+
+The interactive console cannot run at the same time — both would try to publish the same
+GATT service. Run `--stop` first when you need the diagnostics.
 
 ---
 
@@ -146,7 +182,7 @@ Measured on real devices. Absence from this table means untested, not unsupporte
 | macOS | Yes | Yes | **Yes** |
 | Android 16 (Galaxy S24 FE) | Yes | Yes | Yes |
 | Android 11 (Galaxy S20 FE) | Yes | **No** — binds BR/EDR instead of LE | — |
-| Windows 11 | Yes | Yes | **No** — see below |
+| Windows 11 | Yes — **pick the right entry**, see below | Yes | **No** — see below |
 | iOS / iPadOS | Untested | | |
 | Linux | Untested | | |
 | Smart TVs, consoles, BIOS/UEFI | Untested | | |
@@ -159,17 +195,43 @@ narrowed down.
 
 ## Known issues
 
+The two Windows-host problems below are independent. The first bites when you pair; the
+second bites every time the app restarts.
+
+### A Windows host can pair to the wrong entry
+
+This PC is dual-mode: it advertises the LE HID peripheral *and* its ordinary Classic
+BR/EDR identity. A Windows host's **Add device** list therefore shows **two entries for the
+same machine** — one is the Classic/audio side, the other is the LE peripheral.
+
+Pairing the Classic one binds a transport this app cannot service at all (see [Classic
+Bluetooth HID Device role is impossible in user
+mode](#classic-bluetooth-hid-device-role-is-impossible-in-user-mode)). The host reports
+itself as connected, but `peers` lists it under `connected classic`, no GATT read ever
+arrives, the subscriber counts stay flat, and the link drops after roughly 30 s.
+
+**Pair the entry that shows up as a PC, not the audio one.** Measured on a Windows 11
+host: after removing the device and re-pairing to the correct entry, GATT discovery ran
+within seconds (`k=2 m=2`), and toggling the host's Bluetooth off and back on reconnected
+it automatically.
+
+Use `peers` to tell the two apart — a working bond lists the host under `connected LE`.
+
 ### A Windows host will not reconnect after the app restarts
 
-The most significant limitation. After the peripheral process exits and restarts, a paired
-**Windows** host never re-establishes the LE connection — measured over 240 s with
-per-second polling: zero connection attempts, zero subscriptions. macOS and Android
-reconnect automatically from the identical peripheral.
+The most significant limitation, and it is **not** explained by the pairing problem above.
+Measured against a host that was correctly bonded on LE and driving input seconds earlier:
 
-Neither toggling Bluetooth on the host, clicking Connect, nor disabling the peer's Classic
-device nodes recovers it. **Only removing the device on the host and pairing again works.**
+- 180 s hands-off after restarting the peripheral — the host never appeared in the peer
+  list at all, on either transport, and the subscriber count stayed at 1 (the Mac, which
+  had already reconnected by itself).
+- A further 120 s after clicking **Connect** on the host — still nothing, on either
+  transport.
 
-The likely mechanism is a stale GATT attribute cache: `GattServiceProvider` rebuilds its
+macOS and Android reconnect automatically from the identical peripheral. **Only removing
+the device on the host and pairing again works.**
+
+The leading hypothesis is a stale GATT attribute cache: `GattServiceProvider` rebuilds its
 attribute table on every process start, and a bonded client is permitted to skip service
 discovery. The conforming remedy is the Service Changed characteristic (`0x2A05` in
 `0x1801`), which Windows blocks applications from creating:
@@ -186,9 +248,11 @@ the platform reserves the mechanism and does not fire it on behalf of applicatio
 across restarts, and the observed symptom — no connection attempt at all — does not
 require it. Treat the cache explanation as the leading hypothesis, not a conclusion.
 
-**Practical impact:** every rebuild during development drops all paired hosts. The intended
-mitigation is to keep the peripheral alive in a background process so the attribute table
-never moves.
+The practical mitigation is to avoid restarting: [background mode](#background-mode) keeps
+one peripheral alive across sessions.
+
+(Note that the subscriber counts `k=`/`m=` do *not* drop when a bonded host disconnects,
+so they are not a liveness signal. Use the peer list.)
 
 ### Input is broadcast in `all hosts` mode
 
@@ -241,7 +305,8 @@ cheaper than winning the hook chain.
 ### Other limitations
 
 - **No control over the LE identity address.** The peripheral shares the radio's public
-  address with the Classic side, so hosts see one dual-mode device.
+  address with the Classic side, so hosts see one dual-mode device — and some hosts list it
+  twice ([details](#a-windows-host-can-pair-to-the-wrong-entry)).
 - **GAP Appearance cannot be set.** The PC advertises as a computer, not a keyboard, so
   some hosts show the wrong icon. `AppearanceAdvertiser` attempts a workaround; it has no
   observable effect.
@@ -249,7 +314,6 @@ cheaper than winning the hook chain.
   `E_INVALIDARG` for every variant tried, including a null radio handle.
 - **Consumer-control and media keys are not implemented** — the report descriptor covers a
   boot-style keyboard and a 3-button mouse with wheel only.
-- Reboots and OS updates destroy the attribute table just as a restart does.
 
 ---
 
@@ -278,7 +342,8 @@ that requires driver signing and an installer.
 ### Generic Attribute (`0x1801`) is reserved
 
 `GattServiceProvider.CreateAsync(0x1801)` returns `DisabledByPolicy`, so applications
-cannot expose Service Changed. See the reconnect issue above.
+cannot expose Service Changed — a bonded client that skips service discovery cannot be
+told the attribute table was rebuilt.
 
 ---
 
@@ -320,7 +385,8 @@ A few decisions worth knowing if you read the code:
 
 ## Roadmap
 
-- Keep the peripheral alive in a background process so hosts survive an app restart
+- Confirm whether GATT attribute handles actually shift across restarts, to settle the
+  reconnect hypothesis
 - Test iPhone / iPad, smart TV and Linux hosts
 - Consumer-control and media keys
 - A UI — the console interface is deliberately the first step

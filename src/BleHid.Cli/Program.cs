@@ -1,7 +1,15 @@
 using System.Threading.Channels;
+using BleHid.Cli;
 using BleHid.Core;
 
 var requireEncryption = !args.Contains("--plain", StringComparer.OrdinalIgnoreCase);
+
+bool Flag(string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+if (Flag("--background")) return await BackgroundMode.RunAsync(requireEncryption);
+if (Flag("--stop")) return BackgroundMode.Stop();
+if (Flag("--install-autostart")) return BackgroundMode.InstallAutoStart(true);
+if (Flag("--remove-autostart")) return BackgroundMode.InstallAutoStart(false);
 
 var peripheral = new BleHidPeripheral(requireEncryption);
 peripheral.Log += message => Console.WriteLine(message);
@@ -57,6 +65,11 @@ Console.WriteLine($"""
       classic <on|off>     toggle BR/EDR connectable (fails with E_INVALIDARG on this stack)
       quit                 exit
 
+    Background mode (keeps hosts bonded across restarts):
+      --background         run detached, no console; Ctrl+D+C switches target
+      --stop               stop the background instance
+      --install-autostart  run at login   --remove-autostart  undo
+
     """);
 
 while (true)
@@ -100,155 +113,8 @@ while (true)
                                                  .FirstOrDefault(v => v > 0);
                 if (mouseIntervalMs <= 0) mouseIntervalMs = 10;
 
-                // Broadcast duplicates every report onto each link, and interleaving connection
-                // events costs more than a proportional share: measured, 2 hosts needed 40 ms
-                // rather than the proportional 20 ms.
-                int PointerIntervalMs()
-                {
-                    var hosts = peripheral.SelectedHostId is null && !peripheral.IsLocalTarget
-                        ? Math.Max(1, peripheral.SubscribedMouseClients)
-                        : 1;
-                    return hosts > 1 ? mouseIntervalMs * 2 * hosts : mouseIntervalMs;
-                }
-
-                Console.WriteLine($"  pointer report interval: {PointerIntervalMs()} ms");
-
-                using var capture = new InputCapture { Verbose = verbose };
-                var stopped = new TaskCompletionSource();
-
-                // Keystrokes must all be delivered, but pointer motion is coalesced:
-                // the hook produces far more events than the BLE link can carry.
-                // A null Usages entry is the host-switch marker, queued so it takes effect
-                // only after the key-release report has gone to the previous host.
-                var keyQueue = new System.Collections.Concurrent.ConcurrentQueue<(KeyModifiers Modifiers, byte[]? Usages)>();
-                var mouseLock = new object();
-                int pendingDx = 0, pendingDy = 0, pendingWheel = 0;
-                var pendingButtons = MouseButtons.None;
-                var mouseDirty = false;
-                var sent = 0;
-
-                // Signal-driven rather than polled: Task.Delay has ~15 ms granularity on
-                // Windows, which alone made pointer motion feel sluggish.
-                var signal = new SemaphoreSlim(0, 1);
-                void Wake()
-                {
-                    try { signal.Release(); }
-                    catch (SemaphoreFullException) { }
-                }
-
-                using var pumpCancellation = new CancellationTokenSource();
-                var pump = Task.Run(async () =>
-                {
-                    var clock = System.Diagnostics.Stopwatch.StartNew();
-                    var iterations = 0;
-                    long lastMouseSend = -1000;
-                    if (verbose) Console.WriteLine("  [pump] started");
-                    while (!pumpCancellation.IsCancellationRequested)
-                    {
-                        iterations++;
-                        try
-                        {
-                            await signal.WaitAsync(pumpCancellation.Token);
-                        }
-                        catch (OperationCanceledException) { break; }
-
-                        try
-                        {
-                            while (keyQueue.TryDequeue(out var key))
-                            {
-                                if (key.Usages is null)
-                                {
-                                    await peripheral.RefreshHostNamesAsync();
-                                    var target = peripheral.SelectNextHost();
-                                    capture.SetPassThrough(peripheral.IsLocalTarget);
-                                    Console.WriteLine($"  [host] -> {target}");
-                                    continue;
-                                }
-
-                                var started = clock.ElapsedMilliseconds;
-                                await peripheral.SendKeyboardAsync(key.Modifiers, key.Usages);
-                                var elapsed = clock.ElapsedMilliseconds - started;
-                                if (verbose && sent < 40) Console.WriteLine($"  [pump] key notify #{sent} took {elapsed} ms");
-                                Interlocked.Increment(ref sent);
-                            }
-
-                            bool hasMotion;
-                            lock (mouseLock) hasMotion = mouseDirty;
-                            if (!hasMotion) continue;
-
-                            // NotifyValueAsync returns on queueing, so overshoot is invisible
-                            // here and shows up as pointer drift after the user stops moving.
-                            var interval = PointerIntervalMs();
-
-                            var sinceLast = clock.ElapsedMilliseconds - lastMouseSend;
-                            if (sinceLast < interval)
-                                await Task.Delay((int)(interval - sinceLast), pumpCancellation.Token);
-
-                            int dx, dy, wheel;
-                            MouseButtons buttons;
-                            lock (mouseLock)
-                            {
-                                dx = pendingDx; dy = pendingDy; wheel = pendingWheel;
-                                buttons = pendingButtons;
-                                pendingDx = pendingDy = pendingWheel = 0;
-                                mouseDirty = false;
-                            }
-
-                            {
-                                var started = clock.ElapsedMilliseconds;
-                                await peripheral.SendMouseAsync(buttons, dx, dy, wheel);
-                                lastMouseSend = clock.ElapsedMilliseconds;
-                                if (verbose && sent < 40) Console.WriteLine($"  [pump] mouse notify #{sent} ({dx},{dy}) took {lastMouseSend - started} ms");
-                                Interlocked.Increment(ref sent);
-                            }
-                        }
-                        catch (OperationCanceledException) { break; }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"  [pump] send error: {ex}");
-                        }
-                    }
-
-                    if (verbose)
-                        Console.WriteLine($"  [pump] exited after {iterations} iterations, {clock.ElapsedMilliseconds} ms");
-                });
-
-                capture.Log += message => Console.WriteLine(message);
-                capture.KeyboardReport += (modifiers, usages) =>
-                {
-                    keyQueue.Enqueue((modifiers, usages));
-                    Wake();
-                };
-                capture.MouseReport += (buttons, dx, dy, wheel) =>
-                {
-                    lock (mouseLock)
-                    {
-                        pendingDx += dx;
-                        pendingDy += dy;
-                        pendingWheel += wheel;
-                        pendingButtons = buttons;
-                        mouseDirty = true;
-                    }
-                    Wake();
-                };
-                capture.StopRequested += () => stopped.TrySetResult();
-                capture.SwitchHostRequested += () =>
-                {
-                    keyQueue.Enqueue((KeyModifiers.None, null));
-                    Wake();
-                };
-
-                await peripheral.RefreshHostNamesAsync();
-                capture.SetPassThrough(peripheral.IsLocalTarget);
-                Console.WriteLine($"  sending to: {peripheral.SelectedHostDisplay}");
-                Console.WriteLine("  capturing - Ctrl+D+C switches target, Ctrl+Alt+Q stops.");
-                capture.Start();
-                await stopped.Task;
-                capture.Stop();
-                pumpCancellation.Cancel();
-                try { await pump; } catch (OperationCanceledException) { }
-                await peripheral.ReleaseKeysAsync();
-                Console.WriteLine($"  capture stopped. keyboard events={capture.KeyboardEvents}, mouse events={capture.MouseEvents}, reports sent={sent}");
+                await CaptureSession.RunAsync(peripheral, Console.WriteLine, verbose, mouseIntervalMs,
+                    stopEndsSession: true, CancellationToken.None);
                 break;
             }
 

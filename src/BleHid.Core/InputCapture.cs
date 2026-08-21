@@ -15,6 +15,7 @@ public sealed class InputCapture : IDisposable
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 
     private const int WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101;
     private const int WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
@@ -70,6 +71,16 @@ public sealed class InputCapture : IDisposable
         if (_running) return;
         _running = true;
 
+        // The hook reports physical pixels, but GetSystemMetrics/SetCursorPos are virtualised for a
+        // DPI-unaware process. On a scaled display that mismatch adds a constant offset to every
+        // delta and walks the remote pointer into a corner.
+        if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+        {
+            var error = Marshal.GetLastWin32Error();
+            // ERROR_ACCESS_DENIED just means awareness was already set, which is fine.
+            if (error != 5) Log?.Invoke($"  [hook] could not set DPI awareness (err {error}); pointer may drift on scaled displays");
+        }
+
         _thread = new Thread(HookThread) { IsBackground = true, Name = "BleHid input capture" };
         // Must not be STA: an STA hook thread dispatches WinRT completions through the same
         // message pump the input callbacks saturate, which stalls GATT notifications for seconds.
@@ -104,7 +115,7 @@ public sealed class InputCapture : IDisposable
         _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, module, 0);
         var mouseError = Marshal.GetLastWin32Error();
 
-        Log?.Invoke($"  [hook] keyboard=0x{_keyboardHook:x} (err {keyboardError}), mouse=0x{_mouseHook:x} (err {mouseError}), center={_centerX},{_centerY}");
+        Log?.Invoke($"  [hook] keyboard=0x{_keyboardHook:x} (err {keyboardError}), mouse=0x{_mouseHook:x} (err {mouseError}), screen={GetSystemMetrics(0)}x{GetSystemMetrics(1)}, center={_centerX},{_centerY}");
 
         // Hook chains run newest-first, so apps that grab input (Windows App / mstsc, some games)
         // win simply by hooking after us. Re-installing on focus change puts us back in front.
@@ -333,6 +344,9 @@ public sealed class InputCapture : IDisposable
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
