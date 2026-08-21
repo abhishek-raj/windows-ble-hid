@@ -43,7 +43,8 @@ the standard HID over GATT Profile (HOGP).
 
 Prebuilt `win-x64` and `win-arm64` executables are attached to each
 [release](../../releases). They are self-contained single files — no .NET runtime needed.
-Unzip and run `BleHid.Cli.exe`.
+Unzip and run `BleHid.Cli.exe`. The arm64 build has been verified on a Snapdragon-based
+Surface laptop, including `capture` driving a remote host.
 
 The binaries are **unsigned**, so SmartScreen will warn on first launch
 (*More info → Run anyway*). Build from source if you would rather not trust them.
@@ -183,13 +184,19 @@ Measured on real devices. Absence from this table means untested, not unsupporte
 | Android 16 (Galaxy S24 FE) | Yes | Yes | Yes |
 | Android 11 (Galaxy S20 FE) | Yes | **No** — binds BR/EDR instead of LE | — |
 | Windows 11 | Yes — **pick the right entry**, see below | Yes | **No** — see below |
-| iOS / iPadOS | Untested | | |
+| iOS (iPhone) | Yes | Yes — pointer needs **AssistiveTouch**, see below | Untested |
+| iPadOS | Untested | | |
 | Linux | Untested | | |
 | Smart TVs, consoles, BIOS/UEFI | Untested | | |
 
 Older Android builds attach to the PC's Classic radio rather than the LE peripheral and
 never bind HOGP. Newer builds handle it correctly. The cutoff between the two has not been
 narrowed down.
+
+iOS accepts the keyboard immediately, but draws no pointer for the mouse until **Settings
+→ Accessibility → Touch → AssistiveTouch** is enabled. Confirmed on an iPhone: with
+AssistiveTouch on, the pointer appears and tracks. Nothing is wrong with the report
+descriptor — iOS simply has no cursor without that setting.
 
 ---
 
@@ -270,6 +277,27 @@ invisible to the sender and only shows up as pointer lag on the host.
 
 The `× 2` factor is fitted to a **single measurement on one pair of hosts**. It may not
 hold for three or more.
+
+### Pointer behaviour on scaled and mismatched displays
+
+HID mouse reports are relative and unitless — there is no DPI negotiation in the profile.
+Driving a 1280p host from a 4K screen feels roughly three times too fast, and there is no
+sensitivity multiplier yet.
+
+Separately, the app requests per-monitor DPI awareness at capture start. Without it
+`GetSystemMetrics` and `SetCursorPos` are virtualised while the mouse hook reports physical
+pixels, and the mismatch adds a constant offset to every delta that walks the remote
+pointer into a corner.
+
+**The DPI fix is untested.** It was written against a 1920×1080 machine, where the bug
+cannot reproduce. To verify on a scaled display, run `capture` and read the hook line — the
+`screen=` value must match the panel's physical resolution:
+
+```
+[hook] keyboard=0x..., mouse=0x..., screen=3840x2160, center=1920,1080
+```
+
+If it still reports the scaled size, `SetProcessDpiAwarenessContext` is not taking effect.
 
 ### The switch hotkey leaks one keypress
 
@@ -387,7 +415,7 @@ A few decisions worth knowing if you read the code:
 
 - Confirm whether GATT attribute handles actually shift across restarts, to settle the
   reconnect hypothesis
-- Test iPhone / iPad, smart TV and Linux hosts
+- Test iPad, smart TV and Linux hosts
 - Consumer-control and media keys
 - A UI — the console interface is deliberately the first step
 
