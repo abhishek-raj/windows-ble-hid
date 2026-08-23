@@ -1,14 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using BleHid.Core;
 
-namespace BleHid.Cli;
+namespace BleHid.Core;
 
 /// <summary>
 /// Runs a capture session: local hooks in, paced HID reports out. Shared by the interactive
-/// `capture` command and by background mode.
+/// `capture` command, background mode, and the desktop UI.
 /// </summary>
-internal static class CaptureSession
+public static class CaptureSession
 {
     private enum Queued { Report, SwitchHost, GoLocal }
 
