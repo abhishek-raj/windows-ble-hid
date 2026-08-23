@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace BleHid.App.Services;
 
-public enum TargetKind { Host, Local, All }
+public enum TargetKind { Host, Local }
 
 /// <summary>
 /// One entry in the mutually exclusive list of places input can go: a bonded host,
@@ -14,7 +14,6 @@ public sealed class TargetOption : INotifyPropertyChanged
     public required string Title { get; init; }
     public required string Detail { get; init; }
     public TargetKind Kind { get; init; }
-    public int HostIndex { get; init; }
     public string? DeviceId { get; init; }
 
     private bool _isSelected;

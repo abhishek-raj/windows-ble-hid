@@ -35,6 +35,8 @@ public sealed class PeripheralService : INotifyPropertyChanged
     public ObservableCollection<TargetOption> Targets { get; } = [];
 
     private bool _applyingSelection;
+    private bool _refreshingHosts;
+    private string _hostSignature = "";
 
     private bool _isRunning;
     public bool IsRunning { get => _isRunning; private set => Set(ref _isRunning, value); }
@@ -81,6 +83,9 @@ public sealed class PeripheralService : INotifyPropertyChanged
             await peripheral.StartAsync();
             _peripheral = peripheral;
             IsRunning = true;
+            // Without this the peripheral starts in broadcast mode and every report is duplicated
+            // to all subscribed hosts, which is both surprising and slow.
+            peripheral.SelectLocal();
             _poll.Start();
             RefreshCounters();
             await RefreshHostsAsync();
@@ -110,6 +115,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
             IsRunning = false;
             Hosts.Clear();
             Targets.Clear();
+            _hostSignature = "";
             AdvertisementStatus = "Stopped";
             KeyboardSubscribers = MouseSubscribers = 0;
             Target = "nothing yet";
@@ -123,12 +129,22 @@ public sealed class PeripheralService : INotifyPropertyChanged
 
     public async Task RefreshHostsAsync()
     {
-        if (_peripheral is null) return;
-        await _peripheral.RefreshHostNamesAsync();
-        Hosts.Clear();
-        foreach (var host in _peripheral.Hosts()) Hosts.Add(host);
-        RebuildTargets();
-        Target = _peripheral.SelectedHostDisplay;
+        if (_peripheral is null || _refreshingHosts) return;
+        _refreshingHosts = true;
+        try
+        {
+            await _peripheral.RefreshHostNamesAsync();
+            if (_peripheral is null) return;
+            Hosts.Clear();
+            foreach (var host in _peripheral.Hosts()) Hosts.Add(host);
+            _hostSignature = Signature(_peripheral);
+            RebuildTargets();
+            Target = _peripheral.SelectedHostDisplay;
+        }
+        finally
+        {
+            _refreshingHosts = false;
+        }
     }
 
     public void Select(TargetOption option)
@@ -137,14 +153,39 @@ public sealed class PeripheralService : INotifyPropertyChanged
 
         switch (option.Kind)
         {
-            case TargetKind.Local: _peripheral.SelectLocal(); break;
-            case TargetKind.All: _peripheral.SelectAllHosts(); break;
-            default: _peripheral.SelectHost(option.HostIndex); break;
+            case TargetKind.Local:
+                _peripheral.SelectLocal();
+                break;
+            default:
+                // Indexes shift as hosts subscribe and drop, so the device id is the only stable handle.
+                var index = IndexOf(option.DeviceId);
+                if (index < 0)
+                {
+                    Append($"[host] {option.Title} is no longer subscribed");
+                    _ = RefreshHostsAsync();
+                    return;
+                }
+
+                _peripheral.SelectHost(index);
+                break;
         }
 
         Target = _peripheral.SelectedHostDisplay;
+        Append($"[host] -> {Target}");
         SyncSelection();
     }
+
+    private int IndexOf(string? deviceId)
+    {
+        if (_peripheral is null || deviceId is null) return -1;
+        var hosts = _peripheral.Hosts();
+        for (var i = 0; i < hosts.Count; i++)
+            if (string.Equals(hosts[i].DeviceId, deviceId, StringComparison.OrdinalIgnoreCase)) return i;
+        return -1;
+    }
+
+    private static string Signature(BleHidPeripheral peripheral) =>
+        string.Join('|', peripheral.Hosts().Select(h => h.DeviceId));
 
     private void RebuildTargets()
     {
@@ -159,7 +200,6 @@ public sealed class PeripheralService : INotifyPropertyChanged
                 Title = hosts[i].Name is { Length: > 0 } name ? name : hosts[i].Address,
                 Detail = hosts[i].Address,
                 Kind = TargetKind.Host,
-                HostIndex = i,
                 DeviceId = hosts[i].DeviceId
             });
         }
@@ -170,16 +210,6 @@ public sealed class PeripheralService : INotifyPropertyChanged
             Detail = "Capture stays armed but keystrokes are passed through locally.",
             Kind = TargetKind.Local
         });
-
-        if (hosts.Count > 1)
-        {
-            Targets.Add(new TargetOption
-            {
-                Title = "Every host",
-                Detail = "Duplicates each report onto every link, which roughly doubles pointer latency per extra host.",
-                Kind = TargetKind.All
-            });
-        }
 
         SyncSelection();
     }
@@ -197,7 +227,6 @@ public sealed class PeripheralService : INotifyPropertyChanged
                 option.IsSelected = option.Kind switch
                 {
                     TargetKind.Local => _peripheral.IsLocalTarget,
-                    TargetKind.All => !_peripheral.IsLocalTarget && _peripheral.SelectedHostId is null,
                     _ => !_peripheral.IsLocalTarget && _peripheral.SelectedHostId == option.DeviceId
                 };
             }
@@ -208,9 +237,15 @@ public sealed class PeripheralService : INotifyPropertyChanged
         }
     }
 
-    public async Task StartCaptureAsync()
+    /// <param name="resident">
+    /// Background behaviour, as in the CLI: arms before any host has subscribed and treats
+    /// Ctrl+Alt+Q as "return input to this PC" rather than "end the session", because a hidden
+    /// window leaves no way to switch it back on.
+    /// </param>
+    public async Task StartCaptureAsync(bool resident = false)
     {
-        if (_peripheral is null || IsCapturing || !CanCapture) return;
+        if (_peripheral is null || IsCapturing) return;
+        if (!resident && !CanCapture) return;
 
         _captureCancellation = new CancellationTokenSource();
         IsCapturing = true;
@@ -225,7 +260,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
             try
             {
                 await CaptureSession.RunAsync(peripheral, Append, verbose: false, interval,
-                    stopEndsSession: true, token);
+                    stopEndsSession: !resident, token);
             }
             catch (Exception ex)
             {
@@ -261,7 +296,11 @@ public sealed class PeripheralService : INotifyPropertyChanged
         MouseSubscribers = _peripheral.SubscribedMouseClients;
         // Ctrl+D+C changes the target without going through the UI, so mirror it back.
         Target = _peripheral.SelectedHostDisplay;
-        SyncSelection();
+
+        // Hosts subscribe long after the peripheral starts, so the list cannot be built only once.
+        if (Signature(_peripheral) != _hostSignature) _ = RefreshHostsAsync();
+        else SyncSelection();
+
         OnPropertyChanged(nameof(CanCapture));
     }
 

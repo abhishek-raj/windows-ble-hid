@@ -37,14 +37,15 @@ public static class CaptureSession
         var mouseDirty = false;
         var sent = 0;
 
-        // Broadcast duplicates every report onto each link, and interleaving connection events
-        // costs more than a proportional share: measured, 2 hosts needed 40 ms rather than 20 ms.
+        // The radio interleaves connection events across every subscribed link, so a second host
+        // starves the one we are notifying even when it receives nothing. Broadcast pays again on
+        // top of that: measured, 2 hosts needed 40 ms rather than 20 ms.
         int PointerIntervalMs()
         {
-            var hosts = peripheral.SelectedHostId is null && !peripheral.IsLocalTarget
-                ? Math.Max(1, peripheral.SubscribedMouseClients)
-                : 1;
-            return hosts > 1 ? mouseIntervalMs * 2 * hosts : mouseIntervalMs;
+            var links = Math.Max(1, peripheral.SubscribedMouseClients);
+            if (links == 1) return mouseIntervalMs;
+            var broadcasting = peripheral.SelectedHostId is null && !peripheral.IsLocalTarget;
+            return broadcasting ? mouseIntervalMs * 2 * links : mouseIntervalMs * links;
         }
 
         // Signal-driven rather than polled: Task.Delay has ~15 ms granularity on Windows,
@@ -170,15 +171,28 @@ public static class CaptureSession
 
         await peripheral.RefreshHostNamesAsync();
         capture.SetPassThrough(peripheral.IsLocalTarget);
-        log($"  pointer report interval: {PointerIntervalMs()} ms");
-        log($"  sending to: {peripheral.SelectedHostDisplay}");
-        log(stopEndsSession
-            ? "  capturing - Ctrl+D+C switches target, Ctrl+Alt+Q stops."
-            : "  capturing - Ctrl+D+C switches target, Ctrl+Alt+Q returns input to this PC.");
 
-        capture.Start();
-        await stopped.Task;
-        capture.Stop();
+        // The UI can retarget mid-session, and the hook has to stop swallowing input when it does.
+        void OnTargetChanged() => capture.SetPassThrough(peripheral.IsLocalTarget);
+        peripheral.TargetChanged += OnTargetChanged;
+
+        try
+        {
+            log($"  pointer report interval: {PointerIntervalMs()} ms");
+            log($"  sending to: {peripheral.SelectedHostDisplay}");
+            log(stopEndsSession
+                ? "  capturing - Ctrl+D+C switches target, Ctrl+Alt+Q stops."
+                : "  capturing - Ctrl+D+C switches target, Ctrl+Alt+Q returns input to this PC.");
+
+            capture.Start();
+            await stopped.Task;
+        }
+        finally
+        {
+            capture.Stop();
+            peripheral.TargetChanged -= OnTargetChanged;
+        }
+
         pumpCancellation.Cancel();
         try { await pump; } catch (OperationCanceledException) { }
         await peripheral.ReleaseKeysAsync();

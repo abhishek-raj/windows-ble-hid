@@ -48,6 +48,14 @@
           </ui:NavigationViewItem.Icon>
         </ui:NavigationViewItem>
       </ui:NavigationView.MenuItems>
+
+      <ui:NavigationView.FooterMenuItems>
+        <ui:NavigationViewItem Content="Settings" TargetPageType="{x:Type views:SettingsPage}">
+          <ui:NavigationViewItem.Icon>
+            <ui:SymbolIcon Symbol="Settings24" />
+          </ui:NavigationViewItem.Icon>
+        </ui:NavigationViewItem>
+      </ui:NavigationView.FooterMenuItems>
     </ui:NavigationView>
   </Grid>
 </ui:FluentWindow>

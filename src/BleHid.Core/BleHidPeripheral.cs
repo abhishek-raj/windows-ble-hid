@@ -58,6 +58,9 @@ public sealed class BleHidPeripheral : IAsyncDisposable
 
     public event Action<string>? Log;
 
+    /// <summary>Raised on every target change so a running capture can re-evaluate pass-through.</summary>
+    public event Action? TargetChanged;
+
     /// <summary>HOGP mandates encryption, but hosts differ in how they bond with a Windows peripheral.</summary>
     public BleHidPeripheral(bool requireEncryption = true) =>
         _protection = requireEncryption
@@ -322,6 +325,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         {
             _localOnly = false;
             _selectedHostId = hosts[0].DeviceId;
+            TargetChanged?.Invoke();
             return hosts[0].Display;
         }
 
@@ -335,6 +339,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         if (next >= hosts.Count) return SelectLocal();
 
         _selectedHostId = hosts[next].DeviceId;
+        TargetChanged?.Invoke();
         return hosts[next].Display;
     }
 
@@ -343,6 +348,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         _localOnly = true;
         _selectedHostId = null;
         _warnedMissingHost = false;
+        TargetChanged?.Invoke();
         return LocalDisplay;
     }
 
@@ -351,6 +357,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         _localOnly = false;
         _selectedHostId = null;
         _warnedMissingHost = false;
+        TargetChanged?.Invoke();
     }
 
     public bool SelectHost(int index)
@@ -360,6 +367,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         _localOnly = false;
         _selectedHostId = hosts[index].DeviceId;
         _warnedMissingHost = false;
+        TargetChanged?.Invoke();
         return true;
     }
 

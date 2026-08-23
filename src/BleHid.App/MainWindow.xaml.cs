@@ -8,7 +8,7 @@ namespace BleHid.App;
 
 public partial class MainWindow : FluentWindow
 {
-    private bool _stopping;
+    private bool _warnedAboutTray;
 
     public MainWindow()
     {
@@ -18,19 +18,26 @@ public partial class MainWindow : FluentWindow
         Loaded += (_, _) => RootNavigation.Navigate(typeof(StatusPage));
     }
 
-    // Shutting the radio down is async, so the close is deferred rather than blocking the dispatcher.
-    protected override async void OnClosing(CancelEventArgs e)
+    // Staying resident keeps the GATT attribute table alive, which is what hosts reconnect to.
+    protected override void OnClosing(CancelEventArgs e)
     {
-        if (_stopping)
+        if (App.Current.IsExiting)
         {
             base.OnClosing(e);
             return;
         }
 
         e.Cancel = true;
-        _stopping = true;
-        await PeripheralService.Instance.StopAsync();
-        // StopAsync can finish synchronously, and Close() throws if it runs inside the close it cancelled.
-        await Dispatcher.InvokeAsync(Close);
+
+        if (!AppSettings.Instance.CloseToTray)
+        {
+            App.Current.ExitApplication();
+            return;
+        }
+
+        Hide();
+        if (_warnedAboutTray) return;
+        _warnedAboutTray = true;
+        App.Current.Tray?.ShowMessage("Still running. Right-click the tray icon to exit.");
     }
 }
