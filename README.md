@@ -180,8 +180,8 @@ Measured on real devices. Absence from this table means untested, not unsupporte
 
 | Host | Pairs | Input works | Reconnects after app restart |
 | --- | --- | --- | --- |
-| macOS | Yes | Yes | **Yes** |
-| Android 16 (Galaxy S24 FE) | Yes | Yes | Yes |
+| macOS | Yes | Yes | **Yes** — automatic |
+| Android 16 (Galaxy S24 FE) | Yes | Yes | Yes — **manual Connect** required |
 | Android 11 (Galaxy S20 FE) | Yes | **No** — binds BR/EDR instead of LE | — |
 | Windows 11 | Yes — **pick the right entry**, see below | Yes | **No** — see below |
 | iOS (iPhone) | Yes | Yes — pointer needs **AssistiveTouch**, see below | Untested |
@@ -192,6 +192,10 @@ Measured on real devices. Absence from this table means untested, not unsupporte
 Older Android builds attach to the PC's Classic radio rather than the LE peripheral and
 never bind HOGP. Newer builds handle it correctly. The cutoff between the two has not been
 narrowed down.
+
+Only macOS re-establishes the link entirely on its own. Android reconnects reliably across
+app restarts, but you have to tap **Connect** in its Bluetooth settings each time — it does
+not come back unaided.
 
 iOS accepts the keyboard immediately, but draws no pointer for the mouse until **Settings
 → Accessibility → Touch → AssistiveTouch** is enabled. Confirmed on an iPhone: with
@@ -229,19 +233,28 @@ Use `peers` to tell the two apart — a working bond lists the host under `conne
 The most significant limitation, and it is **not** explained by the pairing problem above.
 Measured against a host that was correctly bonded on LE and driving input seconds earlier:
 
-- 180 s hands-off after restarting the peripheral — the host never appeared in the peer
-  list at all, on either transport, and the subscriber count stayed at 1 (the Mac, which
-  had already reconnected by itself).
-- A further 120 s after clicking **Connect** on the host — still nothing, on either
-  transport.
+- 180 s hands-off after restarting the peripheral — the subscriber count stayed at 1 (the
+  Mac, which had already reconnected by itself).
+- A further 120 s after clicking **Connect** on the host — no LE bind, no ATT traffic.
 
-macOS and Android reconnect automatically from the identical peripheral. **Only removing
-the device on the host and pairing again works.**
+Polling `peers` throughout, rather than checking it once at the end, changed the picture.
+The host is not silent: it reappears under `classic:`, holds for roughly 20–45 s, and
+drops. It never appears under `connected LE`, and the HID service is never discovered.
+That is the same failure mode as Android 11 above — the host attaches to the PC's Classic
+radio instead of the LE peripheral and never binds HOGP.
 
-The leading hypothesis is a stale GATT attribute cache: `GattServiceProvider` rebuilds its
-attribute table on every process start, and a bonded client is permitted to skip service
-discovery. The conforming remedy is the Service Changed characteristic (`0x2A05` in
-`0x1801`), which Windows blocks applications from creating:
+macOS reconnects on its own from the identical peripheral, and Android 16 reconnects
+reliably when you tap **Connect**. The Windows failure is stronger than either: even a
+manual Connect does nothing. **Removing the device on the host and pairing again is the
+only remedy** — verified directly, after which input worked and the host was listed under
+`connected LE`.
+
+#### What has been ruled out
+
+The original hypothesis was a stale GATT attribute cache: `GattServiceProvider` rebuilds
+its attribute table on every process start, and a bonded client is permitted to skip
+service discovery. The conforming remedy is the Service Changed characteristic (`0x2A05`
+in `0x1801`), which Windows blocks applications from creating:
 
 ```
 > probe 1801
@@ -249,11 +262,37 @@ discovery. The conforming remedy is the Service Changed characteristic (`0x2A05`
 ```
 
 A GATT client inspecting the PC confirms Windows exposes `0x1801` with `0x2A05` itself, so
-the platform reserves the mechanism and does not fire it on behalf of applications.
+the platform reserves the mechanism and does not fire it on behalf of applications. That
+is a real platform gap, but it is not what breaks reconnection here.
 
-**This mechanism is not proven.** We never verified that attribute handles actually change
-across restarts, and the observed symptom — no connection attempt at all — does not
-require it. Treat the cache explanation as the leading hypothesis, not a conclusion.
+| Hypothesis | Test | Result |
+| --- | --- | --- |
+| Stale attribute cache | Does the host connect and then misread the table? | **No** — it never binds LE, so nothing reads the table |
+| Handle layout shifting between runs | Publish filler services first to force the HID service onto a different handle range | **No change** — identical classic-only failure with shifted and with original handles |
+| Host-side cache expiry on a timer | Wait hours between restarts | **No** — failure is immediate and persistent |
+| Lock/unlock or Bluetooth toggle refreshing the cache | Toggle the host radio, lock and unlock the host | **No** — neither restores the LE bind |
+
+The handle test is the decisive one. If the host were reconnecting against a cached table,
+moving the HID service would have changed the symptom; keeping it in place would have made
+reconnection work. Neither happened, and the failure signature was identical in both
+directions. Handle layout has no bearing on it.
+
+Android was used as a control. It re-reads HID Information and the Report Map on every
+reconnect, so it performs a full service discovery and could never be caught out by a
+rebuilt attribute table:
+
+```
+[read] host read HID Information
+[read] host read Report Map
+[subs] Keyboard input report: 1 subscriber(s)
+```
+
+That explains why Android survives restarts, but it also means Android cannot tell us
+whether the handles move.
+
+What remains is transport selection: after the peripheral's process restarts, the Windows
+host resolves the bond to the PC's Classic radio rather than to the LE peripheral, and
+never retries on LE. Why it does so, and why re-pairing corrects it, is unknown.
 
 The practical mitigation is to avoid restarting: [background mode](#background-mode) keeps
 one peripheral alive across sessions.
@@ -413,8 +452,8 @@ A few decisions worth knowing if you read the code:
 
 ## Roadmap
 
-- Confirm whether GATT attribute handles actually shift across restarts, to settle the
-  reconnect hypothesis
+- Find why a Windows host never re-establishes the link after the app restarts — it
+  reconnects on the Classic radio instead of LE, and the attribute table has been ruled out
 - Test iPad, smart TV and Linux hosts
 - Consumer-control and media keys
 - A UI — the console interface is deliberately the first step
