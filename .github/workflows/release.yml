@@ -9,7 +9,35 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    # Windows only: the test project targets net8.0-windows10.0.19041.0 like the code it covers.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test
+        run: >
+          dotnet test tests/BleHid.Core.Tests/BleHid.Core.Tests.csproj
+          -c Release
+          --logger "trx;LogFileName=results.trx"
+          --results-directory TestResults
+
+      # tests/Invoke-HandoverTests.ps1 and tests/MANUAL-TESTS.md cannot run here: both need a
+      # Bluetooth radio, which GitHub-hosted runners do not have. Run them before tagging.
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults/*.trx
+
   build:
+    needs: test
     # Must be Windows: the project targets net8.0-windows10.0.19041.0 and uses WinRT projections.
     runs-on: windows-latest
 
@@ -24,7 +52,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Publish
+      - name: Publish CLI
         run: >
           dotnet publish src/BleHid.Cli/BleHid.Cli.csproj
           -c Release
@@ -33,6 +61,24 @@ jobs:
           -p:PublishSingleFile=true
           -p:DebugType=none
           -o artifacts/${{ matrix.rid }}
+
+      # Shares the output folder with the CLI: the file names do not collide, and the desktop app
+      # needs its WPF native DLLs alongside it, so the whole folder ships as one archive.
+      - name: Publish desktop app
+        run: >
+          dotnet publish src/BleHid.App/BleHid.App.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:DebugType=none
+          -o artifacts/${{ matrix.rid }}
+
+      - name: Verify both executables are present
+        run: |
+          $missing = @('BleHid.Cli.exe', 'BleHid.App.exe') |
+            Where-Object { -not (Test-Path "artifacts/${{ matrix.rid }}/$_") }
+          if ($missing) { throw "missing from the package: $($missing -join ', ')" }
 
       - name: Package
         run: |
