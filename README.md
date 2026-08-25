@@ -34,7 +34,8 @@ the standard HID over GATT Profile (HOGP).
 
 - Windows 10 2004 (build 19041) or later
 - A Bluetooth radio that supports the **LE peripheral role** — the app reports this at
-  startup; if it says `Peripheral=False`, nothing else will work
+  startup; if it says `Peripheral=False`, nothing else will work. See [Adapter
+  compatibility](#adapter-compatibility) for what has been tested
 - [.NET SDK 8.0](https://dotnet.microsoft.com/download)
 
 ---
@@ -100,7 +101,7 @@ pick a host. From there it is hotkeys only — there is no console to type into:
 | `Ctrl` + `Alt` + `Q` | Return input to this PC (does **not** exit — use `--stop`) |
 
 Only one instance runs at a time; a second `--background` is refused. Output goes to
-`%LOCALAPPDATA%\BleHid\blehid.log`.
+`%LOCALAPPDATA%\BleHid\logs\blehid.log`.
 
 The interactive console cannot run at the same time — both would try to publish the same
 GATT service. Run `--stop` first when you need the diagnostics.
@@ -204,6 +205,40 @@ descriptor — iOS simply has no cursor without that setting.
 
 ---
 
+## Adapter compatibility
+
+The radio on *this* PC has to support the LE peripheral role. Most do; the cheap ones
+often do not. Measured, and again not exhaustive — this is what I happened to have access
+to, not a shortlist worth buying from:
+
+| Adapter | Works |
+| --- | --- |
+| ASUS USB-BT500 (USB dongle) | Yes |
+| ThinkPad P14s built-in radio | Yes |
+| Surface (ARM) built-in radio | Yes |
+| Intel Wireless Bluetooth | Yes |
+| Generic no-name dongle, enumerates as a CSR radio | **No** |
+
+The CSR dongle reports Bluetooth Core Specification 4.0, which is high enough on paper —
+BLE and HOGP both arrived in 4.0 — but it never worked in practice. Supporting a spec
+version is not the same as supporting the peripheral role, and these generic dongles are a
+known weak spot.
+
+If you need to buy one, the rule of thumb is to avoid anything that only claims 4.0 or
+shows up as a generic CSR radio, and prefer a dongle that names its chipset and advertises
+5.0 or later.
+
+Run `BleHid.Cli.exe --diagnose` to check your own: if it reports `Peripheral role : False`,
+that radio cannot act as a keyboard and no amount of pairing will fix it.
+
+To find the spec version your radio claims, follow Microsoft's instructions for [what
+Bluetooth version is on a Windows
+device](https://support.microsoft.com/en-us/windows/hardware/bluetooth/what-bluetooth-version-is-on-a-windows-device)
+— Device Manager → the radio's **Advanced** tab → the **LMP** number, which maps to a core
+spec version (LMP 6 = 4.0, LMP 9 = 5.0, and so on).
+
+---
+
 ## Known issues
 
 The two Windows-host problems below are independent. The first bites when you pair; the
@@ -287,7 +322,7 @@ rebuilt attribute table:
 [subs] Keyboard input report: 1 subscriber(s)
 ```
 
-That explains why Android survives restarts, but it also means Android cannot tell us
+That explains why Android survives restarts, but it also means Android cannot show
 whether the handles move.
 
 What remains is transport selection: after the peripheral's process restarts, the Windows
