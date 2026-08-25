@@ -26,6 +26,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     private string? _selectedHostId;
     private bool _localOnly;
     private bool _warnedMissingHost;
+    private bool _everAdvertised;
     private TaskCompletionSource<bool>? _advertisingStarted;
     private GattServiceProvider? _provider;
     private GattServiceProvider? _batteryProvider;
@@ -131,9 +132,20 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     private void OnAdvertisementStatusChanged(GattServiceProvider sender,
         GattServiceProviderAdvertisementStatusChangedEventArgs args)
     {
-        Log?.Invoke($"[adv ] status -> {args.Status} (error: {args.Error})");
+        // Aborted is reported once on the way up on a healthy radio, so it only means a failure
+        // after advertising has actually started.
+        var note = args.Status == GattServiceProviderAdvertisementStatus.Aborted
+            ? _everAdvertised ? " -- advertising stopped; hosts can no longer see this PC"
+                              : " (expected while starting)"
+            : "";
+
+        Log?.Invoke($"[adv ] status -> {args.Status} (error: {args.Error}){note}");
+
         if (args.Status == GattServiceProviderAdvertisementStatus.Started)
+        {
+            _everAdvertised = true;
             _advertisingStarted?.TrySetResult(true);
+        }
     }
 
     /// <summary>Serves the value from a handler rather than StaticValue so host reads are observable.</summary>

@@ -2,19 +2,18 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using BleHid.App.Services;
+using BleHid.Core;
 using Wpf.Ui.Appearance;
 
 namespace BleHid.App;
 
 public partial class App : Application
 {
-    // Shared with the CLI's background mode: only one process may own the radio.
-    private const string InstanceMutex = @"Local\BleHid.Peripheral";
-
-    private static readonly string LogPath =
-        Path.Combine(Path.GetTempPath(), "blehid-app.log");
+    private static readonly string LogPath = AppPaths.InLogs("blehid-app.log");
 
     private Mutex? _instance;
+    private EventWaitHandle? _stopRequest;
+    private RegisteredWaitHandle? _stopRegistration;
     private bool _exiting;
 
     public new static App Current => (App)Application.Current;
@@ -25,15 +24,17 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        _instance = new Mutex(true, InstanceMutex, out var isOnlyInstance);
-        if (!isOnlyInstance)
+        if (!TryTakeOwnership())
         {
-            MessageBox.Show(
-                "BLE HID is already running. Look for it in the notification area.",
-                "BLE HID", MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
         }
+
+        // Lets `blehid --stop` shut this down the same way it shuts down background mode.
+        _stopRequest = new EventWaitHandle(false, EventResetMode.ManualReset, SingleInstance.StopEventName);
+        _stopRegistration = ThreadPool.RegisterWaitForSingleObject(
+            _stopRequest, (_, _) => Dispatcher.Invoke(ExitApplication), null, Timeout.Infinite,
+            executeOnlyOnce: true);
 
         ApplicationThemeManager.ApplySystemTheme();
         DispatcherUnhandledException += OnDispatcherException;
@@ -58,6 +59,48 @@ public partial class App : Application
         await PeripheralService.Instance.StartCaptureAsync(resident: true);
     }
 
+    /// <summary>
+    /// The holder may be another copy of this app or the CLI's background service; either way it
+    /// owns the radio and has to release it before this process can advertise.
+    /// </summary>
+    private bool TryTakeOwnership()
+    {
+        _instance = new Mutex(true, SingleInstance.MutexName, out var owned);
+        if (owned) return true;
+
+        var answer = MessageBox.Show(
+            "BLE HID is already running, either in the notification area or as the command line "
+            + "background service.\n\nStop it and continue?",
+            "BLE HID", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes) return false;
+
+        try
+        {
+            using var stop = EventWaitHandle.OpenExisting(SingleInstance.StopEventName);
+            stop.Set();
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            MessageBox.Show(
+                "The running instance is too old to accept a stop request. Exit it manually.",
+                "BLE HID", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        for (var attempt = 0; attempt < 50 && !owned; attempt++)
+        {
+            Thread.Sleep(100);
+            _instance.Dispose();
+            _instance = new Mutex(true, SingleInstance.MutexName, out owned);
+        }
+
+        if (!owned)
+            MessageBox.Show("The running instance did not stop in time.",
+                "BLE HID", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+        return owned;
+    }
+
     public void ShowMainWindow()
     {
         MainWindow ??= new MainWindow();
@@ -78,6 +121,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _stopRegistration?.Unregister(null);
+        _stopRequest?.Dispose();
         _instance?.Dispose();
         base.OnExit(e);
     }

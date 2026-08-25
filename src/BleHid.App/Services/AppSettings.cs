@@ -11,8 +11,7 @@ namespace BleHid.App.Services;
 public sealed class AppSettings : INotifyPropertyChanged
 {
     private static readonly string Path = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "BleHid", "app-settings.json");
+        BleHid.Core.AppPaths.Root, "app-settings.json");
 
     public static AppSettings Instance { get; } = Load();
 

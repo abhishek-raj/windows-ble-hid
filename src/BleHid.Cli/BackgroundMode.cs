@@ -11,8 +11,8 @@ namespace BleHid.Cli;
 /// </summary>
 internal static class BackgroundMode
 {
-    private const string MutexName = @"Local\BleHid.Peripheral";
-    private const string StopEventName = @"Local\BleHid.Stop";
+    private const string MutexName = SingleInstance.MutexName;
+    private const string StopEventName = SingleInstance.StopEventName;
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValue = "BleHid";
 
@@ -26,7 +26,6 @@ internal static class BackgroundMode
         }
 
         var logPath = LogPath();
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
         if (File.Exists(logPath) && new FileInfo(logPath).Length > 5 * 1024 * 1024) File.Delete(logPath);
 
         using var writer = new StreamWriter(logPath, append: true) { AutoFlush = true };
@@ -133,8 +132,7 @@ internal static class BackgroundMode
         Console.WriteLine($"Log file  : {LogPath()}");
     }
 
-    private static string LogPath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BleHid", "blehid.log");
+    private static string LogPath() => AppPaths.InLogs("blehid.log");
 
     [DllImport("kernel32.dll")]
     private static extern bool FreeConsole();

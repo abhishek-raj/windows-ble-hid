@@ -7,6 +7,7 @@ var requireEncryption = !args.Contains("--plain", StringComparer.OrdinalIgnoreCa
 bool Flag(string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
 
 if (Flag("--background")) return await BackgroundMode.RunAsync(requireEncryption);
+if (Flag("--diagnose")) return await DiagnoseMode.RunAsync(requireEncryption);
 if (Flag("--stop")) return BackgroundMode.Stop();
 if (Flag("--install-autostart")) return BackgroundMode.InstallAutoStart(true);
 if (Flag("--remove-autostart")) return BackgroundMode.InstallAutoStart(false);
