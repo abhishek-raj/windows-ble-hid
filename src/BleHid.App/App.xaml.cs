@@ -32,6 +32,9 @@ public partial class App : Application
 
         // Lets `blehid --stop` shut this down the same way it shuts down background mode.
         _stopRequest = new EventWaitHandle(false, EventResetMode.ManualReset, SingleInstance.StopEventName);
+        // A named event that still exists ignores the initial state above, so the stop request that
+        // retired the previous owner would fire this one immediately.
+        _stopRequest.Reset();
         _stopRegistration = ThreadPool.RegisterWaitForSingleObject(
             _stopRequest, (_, _) => Dispatcher.Invoke(ExitApplication), null, Timeout.Infinite,
             executeOnlyOnce: true);

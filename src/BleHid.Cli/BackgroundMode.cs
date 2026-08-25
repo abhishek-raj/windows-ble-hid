@@ -58,6 +58,9 @@ internal static class BackgroundMode
         peripheral.SelectLocal();
 
         using var stopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, StopEventName);
+        // A named event that still exists ignores the initial state above, so the stop request that
+        // retired the previous owner would fire this one immediately.
+        stopEvent.Reset();
         using var cancellation = new CancellationTokenSource();
         var stopRegistration = ThreadPool.RegisterWaitForSingleObject(
             stopEvent, (_, _) => cancellation.Cancel(), null, Timeout.Infinite, executeOnlyOnce: true);
