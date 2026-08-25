@@ -60,10 +60,8 @@ jobs:
           --self-contained true
           -p:PublishSingleFile=true
           -p:DebugType=none
-          -o artifacts/${{ matrix.rid }}
+          -o artifacts/cli/${{ matrix.rid }}
 
-      # Shares the output folder with the CLI: the file names do not collide, and the desktop app
-      # needs its WPF native DLLs alongside it, so the whole folder ships as one archive.
       - name: Publish desktop app
         run: >
           dotnet publish src/BleHid.App/BleHid.App.csproj
@@ -72,23 +70,33 @@ jobs:
           --self-contained true
           -p:PublishSingleFile=true
           -p:DebugType=none
-          -o artifacts/${{ matrix.rid }}
+          -o artifacts/app/${{ matrix.rid }}
 
       - name: Verify both executables are present
         run: |
-          $missing = @('BleHid.Cli.exe', 'BleHid.App.exe') |
-            Where-Object { -not (Test-Path "artifacts/${{ matrix.rid }}/$_") }
+          $missing = @()
+          if (-not (Test-Path "artifacts/cli/${{ matrix.rid }}/BleHid.Cli.exe")) { $missing += 'BleHid.Cli.exe' }
+          if (-not (Test-Path "artifacts/app/${{ matrix.rid }}/BleHid.App.exe")) { $missing += 'BleHid.App.exe' }
           if ($missing) { throw "missing from the package: $($missing -join ', ')" }
 
+      # Two archives because the two have different shapes: the CLI is one portable executable,
+      # while the desktop app needs its WPF native DLLs beside it.
       - name: Package
         run: |
-          Copy-Item LICENSE, README.md artifacts/${{ matrix.rid }}
-          Compress-Archive -Path artifacts/${{ matrix.rid }}/* -DestinationPath BleHid-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          Copy-Item LICENSE, README.md artifacts/cli/${{ matrix.rid }}
+          Copy-Item LICENSE, README.md artifacts/app/${{ matrix.rid }}
+          Compress-Archive -Path artifacts/cli/${{ matrix.rid }}/* -DestinationPath BleHid-Cli-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          Compress-Archive -Path artifacts/app/${{ matrix.rid }}/* -DestinationPath BleHid-App-${{ github.ref_name }}-${{ matrix.rid }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BleHid-${{ github.ref_name }}-${{ matrix.rid }}
-          path: BleHid-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          name: BleHid-Cli-${{ github.ref_name }}-${{ matrix.rid }}
+          path: BleHid-Cli-${{ github.ref_name }}-${{ matrix.rid }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BleHid-App-${{ github.ref_name }}-${{ matrix.rid }}
+          path: BleHid-App-${{ github.ref_name }}-${{ matrix.rid }}.zip
 
   release:
     needs: build
