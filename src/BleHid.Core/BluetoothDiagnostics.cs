@@ -40,7 +40,7 @@ public static class BluetoothDiagnostics
             return report.ToString();
         }
 
-        report.AppendLine($"Adapter       : {adapter.BluetoothAddress:X12}");
+        report.AppendLine($"Adapter       : {MaskAddress(adapter.BluetoothAddress)}");
         report.AppendLine($"  LE                  : {adapter.IsLowEnergySupported}");
         report.AppendLine($"  Peripheral role     : {adapter.IsPeripheralRoleSupported}");
         report.AppendLine($"  Central role        : {adapter.IsCentralRoleSupported}");
@@ -61,6 +61,16 @@ public static class BluetoothDiagnostics
         }
 
         return report.ToString();
+    }
+
+    /// <summary>
+    /// Diagnostics get pasted into public issues, so only the OUI is kept: it names the chipset
+    /// vendor, which is what matters for triage, while the rest identifies the machine.
+    /// </summary>
+    private static string MaskAddress(ulong address)
+    {
+        var bytes = BitConverter.GetBytes(address);
+        return $"{bytes[5]:X2}:{bytes[4]:X2}:{bytes[3]:X2}:XX:XX:XX";
     }
 
     /// <summary>Lists LE peers currently holding a connection to this radio.</summary>
