@@ -43,3 +43,7 @@ PublishScripts/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Real device identities: Bluetooth addresses and hostnames stay out of the repo.
+*.local.md
+tests/devices.local.md
