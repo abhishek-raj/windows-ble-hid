@@ -123,8 +123,25 @@ public static class AdvertisingProbe
     }
 
     /// <summary>Maps the first failing step to the thing that actually has to change.</summary>
-    public static string Interpret(IReadOnlyList<ProbeStep> steps)
+    /// <summary>Maps the first failing step to the thing that actually has to change.</summary>
+    public static string Interpret(IReadOnlyList<ProbeStep> steps, string? blockedByPolicy = null)
     {
+        // Policy outranks the ladder: a blocked radio fails the very first probe, which on its own
+        // looks exactly like a broken driver and would send someone out to buy another adapter.
+        if (blockedByPolicy is not null)
+            return $"""
+                {blockedByPolicy} is set to 0, so Windows is blocking this before the radio is
+                ever asked. Nothing is wrong with the adapter or the driver, and replacing
+                either will not help. Clear that policy value and re-run.
+
+                It is set under one of:
+                  HKLM\SOFTWARE\Policies\Microsoft\Bluetooth
+                  HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Bluetooth
+
+                On a work or school machine this is likely managed centrally, so it may come
+                back after a policy refresh; check with whoever administers the machine.
+                """;
+
         var firstFailure = steps.TakeWhile(s => s.Ok).Count();
         if (firstFailure == steps.Count)
             return """
@@ -138,9 +155,10 @@ public static class AdvertisingProbe
         return firstFailure switch
         {
             0 => """
-                The radio would not advertise even with no GATT service attached. That is below
-                anything this app controls: the driver or firmware is refusing to advertise.
-                Try a different driver for this adapter, or a different adapter.
+                The radio would not advertise even with no GATT service attached, and no policy
+                is blocking it. That is below anything this app controls: the driver or firmware
+                is refusing to advertise. Try a different driver for this adapter, or a
+                different adapter.
                 """,
             1 => """
                 The radio advertises, but a connectable GATT service will not start -- and this
@@ -158,33 +176,39 @@ public static class AdvertisingProbe
         };
     }
 
+    /// <summary>Policy findings, plus the value name that blocks advertising outright if any.</summary>
+    public sealed record PolicyReport(string Text, string? BlockedBy);
+
+    private static readonly string[] PolicyKeyPaths =
+    [
+        @"SOFTWARE\Policies\Microsoft\Bluetooth",
+        @"SOFTWARE\Microsoft\PolicyManager\current\device\Bluetooth"
+    ];
+
+    private static readonly string[] PolicyValueNames =
+    [
+        "AllowAdvertising", "AllowDiscoverableMode", "AllowPrepairing",
+        "AllowPromptedProximalConnections", "ServicesAllowedList"
+    ];
+
     /// <summary>
     /// Managed machines can disable LE advertising outright, which looks identical to a hardware
-    /// failure from inside the app.
+    /// failure from inside the app. Seen in the wild on a machine whose owner never set it.
     /// </summary>
-    public static string DescribePolicy()
+    public static PolicyReport ReadPolicy() => ReadPolicy(Registry.LocalMachine);
+
+    internal static PolicyReport ReadPolicy(RegistryKey root)
     {
-        string[] keys =
-        [
-            @"SOFTWARE\Policies\Microsoft\Bluetooth",
-            @"SOFTWARE\Microsoft\PolicyManager\current\device\Bluetooth"
-        ];
-
-        string[] values =
-        [
-            "AllowAdvertising", "AllowDiscoverableMode", "AllowPrepairing",
-            "AllowPromptedProximalConnections", "ServicesAllowedList"
-        ];
-
         var report = new StringBuilder();
+        string? blockedBy = null;
         var found = false;
 
-        foreach (var path in keys)
+        foreach (var path in PolicyKeyPaths)
         {
-            using var key = Registry.LocalMachine.OpenSubKey(path);
+            using var key = root.OpenSubKey(path);
             if (key is null) continue;
 
-            foreach (var name in values)
+            foreach (var name in PolicyValueNames)
             {
                 var value = key.GetValue(name);
                 if (value is null) continue;
@@ -193,14 +217,18 @@ public static class AdvertisingProbe
                 var rendered = value is string[] list ? string.Join(", ", list) : value.ToString();
                 report.AppendLine($"  {name,-32}: {rendered}");
 
-                if (name is "AllowAdvertising" or "AllowDiscoverableMode" && value is int and 0)
+                // Both matter: the app advertises discoverably, so either one set to 0 stops it.
+                if (value is 0 && name is "AllowAdvertising" or "AllowDiscoverableMode")
+                {
+                    blockedBy ??= name;
                     report.AppendLine($"  ! {name} is disabled by policy; advertising cannot start until this is lifted");
+                }
             }
         }
 
         return found
-            ? report.ToString().TrimEnd()
-            : "  none set (no Bluetooth restrictions from Group Policy or MDM)";
+            ? new PolicyReport(report.ToString().TrimEnd(), blockedBy)
+            : new PolicyReport("  none set (no Bluetooth restrictions from Group Policy or MDM)", null);
     }
 
     /// <summary>

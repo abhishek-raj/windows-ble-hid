@@ -68,7 +68,8 @@ internal static class DiagnoseMode
             {
                 Emit("");
                 Emit("Bluetooth policy:");
-                Emit(AdvertisingProbe.DescribePolicy());
+                var policy = AdvertisingProbe.ReadPolicy();
+                Emit(policy.Text);
                 Emit("");
                 Emit("Advertisement budget:");
                 Emit(AdvertisingProbe.DescribeAdvertisementBudget());
@@ -83,7 +84,7 @@ internal static class DiagnoseMode
                 if (facts.RadiosOn > 1)
                     Emit($"  ! {facts.RadiosOn} Bluetooth radios are on; the advertisement can land on the wrong one\n");
 
-                Emit(AdvertisingProbe.Interpret(steps));
+                Emit(AdvertisingProbe.Interpret(steps, policy.BlockedBy));
                 Emit("");
                 Emit("Please attach this report to a GitHub issue.");
             }
