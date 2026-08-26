@@ -50,9 +50,44 @@ internal static class DiagnoseMode
 
         Emit(new string('-', 60));
         Emit($"Advertisement status: {peripheral.AdvertisementStatus}");
-        Emit(advertising ? Verdict.Advertising : Verdict.NotAdvertising);
 
         await peripheral.DisposeAsync();
+
+        if (advertising)
+        {
+            Emit(Verdict.Advertising);
+        }
+        else
+        {
+            var facts = await BluetoothDiagnostics.GetRadioFactsAsync();
+            if (!facts.PeripheralRole)
+            {
+                Emit(Verdict.NoPeripheralRole);
+            }
+            else
+            {
+                Emit("");
+                Emit("Bluetooth policy:");
+                Emit(AdvertisingProbe.DescribePolicy());
+                Emit("");
+                Emit("Advertisement budget:");
+                Emit(AdvertisingProbe.DescribeAdvertisementBudget());
+
+                Emit("");
+                Emit("Narrowing down the failure, one variable at a time:");
+                var steps = await AdvertisingProbe.RunAsync();
+                foreach (var step in steps)
+                    Emit($"  [{(step.Ok ? " ok " : "FAIL")}] {step.Label,-34}: {step.Detail}");
+
+                Emit("");
+                if (facts.RadiosOn > 1)
+                    Emit($"  ! {facts.RadiosOn} Bluetooth radios are on; the advertisement can land on the wrong one\n");
+
+                Emit(AdvertisingProbe.Interpret(steps));
+                Emit("");
+                Emit("Please attach this report to a GitHub issue.");
+            }
+        }
 
         try
         {
@@ -77,13 +112,12 @@ internal static class DiagnoseMode
               - some phones only list HID peripherals in the "pair new device" screen
             """;
 
-        public const string NotAdvertising = """
+        public const string NoPeripheralRole = """
 
-            Advertising did not start. In order of likelihood:
-              - Peripheral role is False above: this radio cannot be a keyboard. No fix in software.
-              - More than one Bluetooth radio is on: disable the others in Device Manager.
-              - A dongle is present but Windows is still using the built-in radio, or vice versa.
-              - Another app already holds the advertisement slots; reboot and retry before anything else.
+            Advertising did not start.
+
+              This radio does not support the LE peripheral role, so it cannot be a
+              keyboard. No fix in software; a different adapter is the only option.
             """;
     }
 }

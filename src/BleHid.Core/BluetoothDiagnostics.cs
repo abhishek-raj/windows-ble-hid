@@ -7,6 +7,26 @@ namespace BleHid.Core;
 
 public static class BluetoothDiagnostics
 {
+    /// <summary>The facts an "advertising aborted" verdict has to be based on.</summary>
+    public readonly record struct RadioFacts(bool PeripheralRole, int RadiosOn);
+
+    public static async Task<RadioFacts> GetRadioFactsAsync()
+    {
+        int radiosOn;
+        try
+        {
+            var radios = await Radio.GetRadiosAsync();
+            radiosOn = radios.Count(r => r.Kind == RadioKind.Bluetooth && r.State == RadioState.On);
+        }
+        catch
+        {
+            radiosOn = 0;
+        }
+
+        var adapter = await BluetoothAdapter.GetDefaultAsync();
+        return new RadioFacts(adapter?.IsPeripheralRoleSupported ?? false, radiosOn);
+    }
+
     /// <summary>
     /// Radio capabilities behind an "advertising aborted" report. Peripheral role support is the
     /// one that decides whether this machine can act as a keyboard at all.

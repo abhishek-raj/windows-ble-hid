@@ -194,6 +194,12 @@ Older Android builds attach to the PC's Classic radio rather than the LE periphe
 never bind HOGP. Newer builds handle it correctly. The cutoff between the two has not been
 narrowed down.
 
+A phone listing the PC under **Phone calls** and **Media audio** is normal and does not
+mean anything went wrong — the PC is dual-mode, so its Classic profiles show up whether or
+not the HID service bound. What tells you HOGP actually attached is an **Input device**
+entry alongside those two. If Phone calls and Media audio are the only options, the phone
+bound Classic only.
+
 Only macOS re-establishes the link entirely on its own. Android reconnects reliably across
 app restarts, but you have to tap **Connect** in its Bluetooth settings each time — it does
 not come back unaided.
@@ -410,8 +416,8 @@ cheaper than winning the hook chain.
   address with the Classic side, so hosts see one dual-mode device — and some hosts list it
   twice ([details](#a-windows-host-can-pair-to-the-wrong-entry)).
 - **GAP Appearance cannot be set.** The PC advertises as a computer, not a keyboard, so
-  some hosts show the wrong icon. `AppearanceAdvertiser` attempts a workaround; it has no
-  observable effect.
+  some hosts show the wrong icon. `AppearanceAdvertiser` attempts a workaround; it cannot
+  work ([details](#advertisement-payloads-are-restricted-to-manufacturer-data)).
 - **BR/EDR cannot be suppressed.** `BluetoothEnableIncomingConnections` returns
   `E_INVALIDARG` for every variant tried, including a null radio handle.
 - **Consumer-control and media keys are not implemented** — the report descriptor covers a
@@ -421,8 +427,8 @@ cheaper than winning the hook chain.
 
 ## Platform findings
 
-Two questions came up repeatedly and are now settled empirically. Both probes ship as
-commands so the results can be reproduced.
+Three questions came up repeatedly and are now settled empirically. Each probe ships as a
+command so the results can be reproduced.
 
 ### Classic Bluetooth HID Device role is impossible in user mode
 
@@ -446,6 +452,21 @@ that requires driver signing and an installer.
 `GattServiceProvider.CreateAsync(0x1801)` returns `DisabledByPolicy`, so applications
 cannot expose Service Changed — a bonded client that skips service discovery cannot be
 told the attribute table was rebuilt.
+
+### Advertisement payloads are restricted to manufacturer data
+
+A desktop app may not put arbitrary sections into a `BluetoothLEAdvertisement`. Adding a
+GAP Appearance (`0x19`) or a service-UUID list (`0x03`) section throws at `Start()`:
+
+```
+> appearance
+[appr] FAILED: Attempted to perform an unauthorized operation.
+```
+
+Only `ManufacturerData` is permitted, which cannot carry a real Appearance field. So the
+appearance workaround above never had a chance of working, and the `appearance` command
+fails on every machine rather than only on some. The same restriction shapes the
+`--diagnose` probes: the bare advertisement they publish has to use manufacturer data.
 
 ---
 
