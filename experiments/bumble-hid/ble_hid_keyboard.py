@@ -357,12 +357,26 @@ async def run(args: argparse.Namespace) -> None:
         device.on('connection', on_connection)
         device.on('disconnection', lambda reason: logger.info('disconnected: %s', reason))
 
+        # Reproduces the .NET peripheral, which advertises a rotating RPA and leaves the
+        # peer to resolve it. The identity handed over during pairing stays the static
+        # address either way, so only the advertised address changes.
+        if args.rpa:
+            device.le_privacy_enabled = True
+
         await device.power_on()
-        logger.info('identity address: %s', device.random_address)
+        logger.info('identity address: %s', device.static_address)
+        if args.rpa:
+            logger.warning('advertising RPA %s, peer must resolve it', device.random_address)
 
         if device.keystore is not None:
             for name, _keys in await device.keystore.get_all():
                 logger.info('existing bond: %s', name)
+
+        # power_on resets the dongle, which drops any link the controller was still
+        # maintaining, so this delay is a genuine outage the peer can observe.
+        if args.advertise_after:
+            logger.info('radio silent for %d s', args.advertise_after)
+            await asyncio.sleep(args.advertise_after)
 
         await start_advertising(device, args.advertising, args.name)
 
@@ -439,6 +453,18 @@ def main() -> None:
         '--no-pnp-id',
         action='store_true',
         help='Omit the PnP ID characteristic, to test whether hosts need it to reconnect',
+    )
+    parser.add_argument(
+        '--rpa',
+        action='store_true',
+        help='Advertise a resolvable private address instead of the static address',
+    )
+    parser.add_argument(
+        '--advertise-after',
+        type=int,
+        default=0,
+        metavar='SECONDS',
+        help='Stay off the air this long before advertising, for a visible outage',
     )
     args = parser.parse_args()
 

@@ -12,15 +12,18 @@ Bluetooth adapter's driver, which is a trade-off most people should not make.
 
 Windows exposes BLE peripheral mode through `GattServiceProvider`, whose advertising
 parameters are only `IsConnectable` and `IsDiscoverable`. There is no way to advertise
-restricted to already-bonded centrals, which is the mechanism real HID peripherals use to
-get picked up silently after a restart. That is the leading explanation for why a phone
-never reconnects on its own to this app — see the "Known issues" section in the root
-[README.md](../../README.md).
+restricted to already-bonded centrals, which is the mechanism I assumed real HID
+peripherals use to get picked up silently after a restart. That was my leading explanation
+for why a phone never reconnects on its own to this app.
 
 Bumble bypasses the Windows stack entirely, so the advertising filter policy, the filter
-accept list, and directed advertising are all reachable. This experiment exists to test
-whether using them actually restores automatic reconnection. If it does, that confirms the
-diagnosis is an API limitation rather than a host-side bug.
+accept list and directed advertising are all reachable. I built this to test that theory.
+
+**The theory was wrong.** This peripheral reconnects unprompted in well under a second
+using plain undirected advertising, open to any device — no accept list, no directed
+advertising. Getting there uncovered two genuine bugs that had nothing to do with
+advertising policy, and ruled out two more suspects on the Windows side. See
+[What this found](#what-this-found).
 
 ## Hardware and driver setup
 
@@ -81,35 +84,91 @@ Three advertising modes, selected with `--advertising`:
 | `bonded` | Advertising with filter policy 3 and the filter accept list loaded from bonded peers. Only bonded devices may scan or connect. |
 | `directed` | Low duty cycle directed advertising aimed at the first bonded peer's identity address. |
 
-First pairing, then type a test string once the host subscribes:
+`open` turned out to be enough. `bonded` and `directed` were the point of the experiment,
+but they are also untested: they need controller support this dongle does not have (see
+[Known gaps](#known-gaps)), and once the identity address bug was fixed there was nothing
+left for them to fix.
+
+These flags control what the peripheral looks like on the air:
+
+| Flag | Purpose |
+| --- | --- |
+| `--text TEXT` | Type `TEXT` once, each time a host subscribes to input reports. |
+| `--rpa` | Advertise a rotating resolvable private address instead of the static one, mirroring what Windows does. |
+| `--no-pnp-id` | Omit the PnP ID characteristic, reproducing the gap in the Windows implementation. |
+| `--advertise-after N` | Reset the radio, then stay silent for `N` seconds before advertising. |
+
+First pairing:
 
 ```powershell
-python ble_hid_keyboard.py --transport usb:0 --advertising open --text "hello from bumble"
+python ble_hid_keyboard.py --transport usb:0 --advertising open
 ```
 
-Pair from the phone as you would any Bluetooth keyboard. Then stop the script, restart it
-in a restricted mode, and leave the phone alone:
+Pair from the phone as you would any Bluetooth keyboard. Anything you type into the
+script's console is then typed on the phone, so put the cursor in a text field first.
+
+To test reconnection, restart it with an outage long enough to watch on the phone:
 
 ```powershell
-python ble_hid_keyboard.py --transport usb:0 --advertising bonded
+python ble_hid_keyboard.py --transport usb:0 --advertising open --advertise-after 30
 ```
 
-```powershell
-python ble_hid_keyboard.py --transport usb:0 --advertising directed
-```
+The phone should show the device disconnect, sit there for the full 30 seconds, and then
+reconnect on its own once advertising resumes — with no tap in Bluetooth settings.
 
-## What to look for
+## What this found
 
-The question this answers: **does the phone reconnect on its own, with no tap in Bluetooth
-settings?**
+### Two real bugs, both in this peripheral
 
-- If `bonded` or `directed` produces an unprompted reconnection, the accept-list theory
-  holds and the Windows implementation is limited by its API, not broken.
-- If neither does, the theory is wrong and the cause is somewhere else — most likely
-  host-side policy about what it considers worth reconnecting to.
+**The wrong identity address was handed over during pairing.** `PairingConfig` defaults
+`identity_address_type` to public, so SMP distributed the dongle's public address while the
+device advertised a static random one. The phone stores the identity address it is given
+and reconnects to *that*, so it was targeting an address nothing was advertising on. The
+symptom was total: no automatic reconnection, and no reconnection on a manual tap either,
+with only "forget and re-pair" as a workaround. The fix is one line —
+`identity_address_type=PairingConfig.AddressType.RANDOM`. Pairing also went from taking
+15–20 seconds to being instant.
 
-Watch the log for a `connected:` line that you did not trigger. Bond state lives in
-`keys.json`; delete it to start over from an unpaired state.
+**Notification subscriptions were not restored after reconnecting.** A bonded HOGP host
+does not rewrite the CCCD when it comes back; the peripheral is required to remember it.
+Bumble keeps subscriptions in memory only, so after a restart every report was silently
+dropped and the keyboard typed into the void. Fixed by reseeding the subscription on
+encryption change.
+
+### Two suspects ruled out for the Windows implementation
+
+**A missing PnP ID is not the cause.** HOGP mandates a Device Information Service with a
+PnP ID, and the Windows implementation publishes neither. Running this peripheral with
+`--no-pnp-id` to reproduce that gap: the phone still subscribed, still typed, and still
+reconnected on its own. Worth adding for conformance, but it will not fix reconnection.
+
+**A rotating private address is not the cause.** Windows advertises a resolvable private
+address and distributes a public identity plus an IRK — textbook LE privacy, but it does
+mean the peer has to resolve the address on every reconnect. Running this peripheral with
+`--rpa` to mirror that, against a 30 second outage:
+
+| Advertised address | Reconnect after a 30 s outage |
+| --- | --- |
+| Static random | 639 ms, unprompted |
+| Resolvable private | 44 ms, unprompted |
+
+Android resolves the rotating address and reconnects either way.
+
+### How to run the comparison
+
+Watch the log for a `connected:` line you did not trigger. Bond state lives in `keys.json`;
+delete it, and forget the device on the phone, to start from an unpaired state.
+
+Two traps that produced hours of bad data:
+
+- **Killing the process does not disconnect anything.** The controller maintains the link
+  on its own, so the phone still shows connected with no peripheral running. The link only
+  drops when the dongle is reset, which is what the next `power_on` does. Timing a
+  reconnect after a kill measures when the dongle got reset, not how fast the peer came
+  back. `--advertise-after` exists to make the outage real and observable.
+- **Never send test keystrokes unless a text field is focused on the phone.** Unfocused HID
+  keystrokes are interpreted as system shortcuts. Mine switched Bluetooth off mid-test and
+  invalidated an entire run.
 
 There is a second thing worth checking while this is running. Bumble builds the advertising
 payload itself, so this peripheral advertises a GAP Appearance of keyboard — which a Windows
@@ -120,8 +179,13 @@ never showed up.
 ## Known gaps
 
 - Milestone 1 is the peripheral only. Real keyboard and mouse capture is not wired up —
-  `--text` sends canned keystrokes to prove the HID path works end to end.
+  typing into the console sends canned keystrokes to prove the HID path works end to end.
 - Bumble is alpha software and documents that its API may change between releases.
 - Populating the filter accept list has no high-level helper in Bumble, so
   `load_filter_accept_list` issues the HCI commands directly.
-- Untested against a real dongle so far.
+- `bonded` and `directed` are untested. The dongle I used reports no LL Privacy support, so
+  it cannot resolve a privacy-enabled peer's rotating address in the controller, which is
+  what both modes need to recognise a bonded phone.
+- Realtek dongles need vendor firmware uploaded before the radio will transmit. Without it
+  the controller answers HCI commands normally and looks healthy, but nothing goes on the
+  air. `bumble-rtk-fw-download` fetches it.

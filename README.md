@@ -188,7 +188,8 @@ Measured on real devices. Absence from this table means untested, not unsupporte
 | iOS (iPhone) | Yes | Yes — pointer needs **AssistiveTouch**, see below | Untested |
 | iPadOS | Untested | | |
 | Linux | Untested | | |
-| Smart TVs, consoles, BIOS/UEFI | Untested | | |
+| Samsung TV (Tizen) | **No** — the PC never appears in its device list | — | — |
+| Consoles, BIOS/UEFI | Untested | | |
 
 Older Android builds attach to the PC's Classic radio rather than the LE peripheral and
 never bind HOGP. Newer builds handle it correctly. The cutoff between the two has not been
@@ -200,9 +201,39 @@ not the HID service bound. What tells you HOGP actually attached is an **Input d
 entry alongside those two. If Phone calls and Media audio are the only options, the phone
 bound Classic only.
 
+The Samsung TV never lists the PC at all, so there is nothing to pair with. It does pair
+with a Dell KB740 keyboard and MS5320W mouse, and `peers` reports both of those under
+`connected LE` with nothing under `connected classic` — so they are HOGP devices and the TV
+almost certainly speaks the same profile this app exposes. The one gap in that reasoning is
+that a dual-mode peripheral could bond to the TV over Classic while bonding to this PC over
+LE; it has not been checked from the TV side.
+
+What is left is that the TV filters what it offers. The PC advertises as a computer rather
+than a keyboard, and that field [cannot be
+set](#advertisement-payloads-are-restricted-to-manufacturer-data) from a Windows desktop
+app, so a host that filters on it would never show the PC no matter what else is correct.
+That is the leading explanation rather than a confirmed one — it has not been observed from
+the TV side, and nothing rules out the TV filtering on some other property.
+
 Only macOS re-establishes the link entirely on its own. Android reconnects reliably across
 app restarts, but you have to tap **Connect** in its Bluetooth settings each time — it does
 not come back unaided.
+
+Neither of the obvious peripheral-side explanations for that survives testing. I built a
+control peripheral on a USB dongle ([experiments/bumble-hid](experiments/bumble-hid/README.md))
+that speaks HOGP outside the Windows stack, and reproduced each suspect in isolation
+against the same phone:
+
+| Suspect, reproduced on the control | Result |
+| --- | --- |
+| No Device Information Service and no PnP ID, matching this app | Still reconnected unaided |
+| Rotating resolvable private address, matching what Windows advertises | Still reconnected unaided, 44 ms after a 30 s outage |
+
+The control reconnects by itself in well under a second using plain undirected advertising
+open to any device. So a phone will happily auto-reconnect to a HOGP peripheral that
+publishes no PnP ID and changes its address between runs. Whatever makes Android wait for a
+tap here, it is neither of those — and it is not the absence of accept-list or directed
+advertising either, since the control uses neither.
 
 iOS accepts the keyboard immediately, but draws no pointer for the mouse until **Settings
 → Accessibility → Touch → AssistiveTouch** is enabled. Confirmed on an iPhone: with
@@ -416,7 +447,8 @@ cheaper than winning the hook chain.
   address with the Classic side, so hosts see one dual-mode device — and some hosts list it
   twice ([details](#a-windows-host-can-pair-to-the-wrong-entry)).
 - **GAP Appearance cannot be set.** The PC advertises as a computer, not a keyboard, so
-  some hosts show the wrong icon. `AppearanceAdvertiser` attempts a workaround; it cannot
+  some hosts show the wrong icon, and at least one — a Samsung TV — appears to filter it
+  out of its device list entirely. `AppearanceAdvertiser` attempts a workaround; it cannot
   work ([details](#advertisement-payloads-are-restricted-to-manufacturer-data)).
 - **BR/EDR cannot be suppressed.** `BluetoothEnableIncomingConnections` returns
   `E_INVALIDARG` for every variant tried, including a null radio handle.
