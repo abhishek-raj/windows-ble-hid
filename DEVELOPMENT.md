@@ -141,11 +141,17 @@ Configuration Descriptor value to persist across connections for bonded devices.
 Provider recreation loses the Windows-side report subscriptions. CCCD values are not part
 of the Database Hash, so the client cannot detect that loss by validating the hash.
 
-A forced real database change while Android was offline made Android reconnect and open
-HOGP, but it still did not write the keyboard or mouse CCCDs. Android opened HOGP from
-cached report metadata before hash validation completed, then performed generic service
-discovery without reconciling notification configuration. Its UI showed Input enabled and
-UHID opened, while WinRT had zero subscribed clients.
+With Android Bluetooth off, the normal HOGP provider was started and then an empty private
+service was added in the same process. Before Android returned, the private service was
+present at `0x006E`, the Database Hash had changed, and `0x1812` remained at
+`0x005D-0x006D`. When Bluetooth was turned on, Android reconnected automatically. Windows
+sent a genuine Service Changed indication covering `0x005D-0x006E`, Android confirmed it,
+detected the new hash, and performed full service discovery.
+
+HOGP and UHID opened and Android showed Input enabled, but Android still did not write the
+keyboard or mouse CCCDs; WinRT had zero subscribed clients. Android opened HOGP from cached
+report metadata before hash validation completed, then performed generic discovery without
+reconciling notification configuration.
 
 Input-profile toggling and an explicit disconnect/reconnect did not repair that forced
 state. Returning to the normal database and manually connecting caused Android to reread
