@@ -11,6 +11,9 @@ the standard HID over GATT Profile (HOGP).
 > there are real limitations — see [Known issues](#known-issues) before relying on it.
 > Everything below was measured on actual hardware; unverified claims are marked as such.
 
+Implementation constraints, packet traces, experiments, and falsified hypotheses live in
+[DEVELOPMENT.md](DEVELOPMENT.md).
+
 ---
 
 ## What it does
@@ -103,6 +106,28 @@ pick a host. From there it is hotkeys only — there is no console to type into:
 Only one instance runs at a time; a second `--background` is refused. Output goes to
 `%LOCALAPPDATA%\BleHid\logs\blehid.log`.
 
+### Pointer pacing overrides
+
+On Windows 11, pointer reports follow each selected host's negotiated BLE connection
+interval. Windows 10 uses the configured minimum because the operating system does not
+expose the negotiated value. To choose a slower interval for a particular host, create
+`%LOCALAPPDATA%\BleHid\pointer-pacing.json`:
+
+```json
+{
+  "defaultMinimumIntervalMs": 10,
+  "hostMinimumIntervalMs": {
+    "Example Phone": 30,
+    "Example Mac": 15
+  }
+}
+```
+
+Host names are matched case-insensitively, so overrides survive forgetting and re-pairing.
+Names are not guaranteed unique; devices with the same name share an override. The effective
+interval is the greatest of the negotiated interval, the app or CLI minimum, the file default,
+and the host override. Higher values reduce controller queueing but can make motion choppier.
+
 The interactive console cannot run at the same time — both would try to publish the same
 GATT service. Run `--stop` first when you need the diagnostics.
 
@@ -182,7 +207,7 @@ Measured on real devices. Absence from this table means untested, not unsupporte
 | Host | Pairs | Input works | Reconnects after app restart |
 | --- | --- | --- | --- |
 | macOS | Yes | Yes | **Yes** — automatic |
-| Android 16 (Galaxy S24 FE) | Yes | Yes | Yes — **manual Connect** required |
+| Android 16 (Galaxy S24 FE) | Yes | Yes | Automatic while the app stays running; manual after app restart |
 | Android 11 (Galaxy S20 FE) | Yes | **No** — binds BR/EDR instead of LE | — |
 | Windows 11 | Yes — **pick the right entry**, see below | Yes | **No** — see below |
 | iOS (iPhone) | Yes | Yes — pointer needs **AssistiveTouch**, see below | Untested |
@@ -201,39 +226,9 @@ not the HID service bound. What tells you HOGP actually attached is an **Input d
 entry alongside those two. If Phone calls and Media audio are the only options, the phone
 bound Classic only.
 
-The Samsung TV never lists the PC at all, so there is nothing to pair with. It does pair
-with a Dell KB740 keyboard and MS5320W mouse, and `peers` reports both of those under
-`connected LE` with nothing under `connected classic` — so they are HOGP devices and the TV
-almost certainly speaks the same profile this app exposes. The one gap in that reasoning is
-that a dual-mode peripheral could bond to the TV over Classic while bonding to this PC over
-LE; it has not been checked from the TV side.
-
-What is left is that the TV filters what it offers. The PC advertises as a computer rather
-than a keyboard, and that field [cannot be
-set](#advertisement-payloads-are-restricted-to-manufacturer-data) from a Windows desktop
-app, so a host that filters on it would never show the PC no matter what else is correct.
-That is the leading explanation rather than a confirmed one — it has not been observed from
-the TV side, and nothing rules out the TV filtering on some other property.
-
-Only macOS re-establishes the link entirely on its own. Android reconnects reliably across
-app restarts, but you have to tap **Connect** in its Bluetooth settings each time — it does
-not come back unaided.
-
-Neither of the obvious peripheral-side explanations for that survives testing. I built a
-control peripheral on a USB dongle ([experiments/bumble-hid](experiments/bumble-hid/README.md))
-that speaks HOGP outside the Windows stack, and reproduced each suspect in isolation
-against the same phone:
-
-| Suspect, reproduced on the control | Result |
-| --- | --- |
-| No Device Information Service and no PnP ID, matching this app | Still reconnected unaided |
-| Rotating resolvable private address, matching what Windows advertises | Still reconnected unaided, 44 ms after a 30 s outage |
-
-The control reconnects by itself in well under a second using plain undirected advertising
-open to any device. So a phone will happily auto-reconnect to a HOGP peripheral that
-publishes no PnP ID and changes its address between runs. Whatever makes Android wait for a
-tap here, it is neither of those — and it is not the absence of accept-list or directed
-advertising either, since the control uses neither.
+The Samsung TV does not list the PC, so pairing cannot begin. The likely reason is that the
+TV filters for peripherals that advertise as a keyboard or mouse, while Windows identifies
+the radio as a computer. Desktop apps cannot change that system-owned identity.
 
 iOS accepts the keyboard immediately, but draws no pointer for the mouse until **Settings
 → Accessibility → Touch → AssistiveTouch** is enabled. Confirmed on an iPhone: with
@@ -278,8 +273,17 @@ spec version (LMP 6 = 4.0, LMP 9 = 5.0, and so on).
 
 ## Known issues
 
-The two Windows-host problems below are independent. The first bites when you pair; the
-second bites every time the app restarts.
+### Android needs a manual connection after the provider restarts
+
+Android reconnects automatically after range loss or a phone Bluetooth toggle while the
+same BleHid process remains running. If BleHid or Windows restarts, open the PC's Bluetooth
+details on Android and tap **Connect**. If Input device does not begin working, forget the PC
+and pair it again.
+
+Keep BleHid in the notification area or use [background mode](#background-mode) to avoid
+unnecessary provider restarts. A Windows restart still destroys the provider and cannot be
+hidden by autostart. See [DEVELOPMENT.md](DEVELOPMENT.md#android-reconnect-failure-after-provider-restart)
+for the Service Changed and bonded-CCCD analysis.
 
 ### A Windows host can pair to the wrong entry
 
@@ -287,90 +291,26 @@ This PC is dual-mode: it advertises the LE HID peripheral *and* its ordinary Cla
 BR/EDR identity. A Windows host's **Add device** list therefore shows **two entries for the
 same machine** — one is the Classic/audio side, the other is the LE peripheral.
 
-Pairing the Classic one binds a transport this app cannot service at all (see [Classic
-Bluetooth HID Device role is impossible in user
-mode](#classic-bluetooth-hid-device-role-is-impossible-in-user-mode)). The host reports
-itself as connected, but `peers` lists it under `connected classic`, no GATT read ever
-arrives, the subscriber counts stay flat, and the link drops after roughly 30 s.
+Pairing the Classic one binds a transport this app cannot service. The host reports itself
+as connected, but `peers` lists it under `connected classic`, no GATT read arrives, and the
+link drops after roughly 30 seconds.
 
 **Pair the entry that shows up as a PC, not the audio one.** Measured on a Windows 11
 host: after removing the device and re-pairing to the correct entry, GATT discovery ran
-within seconds (`k=2 m=2`), and toggling the host's Bluetooth off and back on reconnected
-it automatically.
+within seconds, both report subscriptions appeared, and toggling the host's Bluetooth off
+and back on reconnected it automatically.
 
 Use `peers` to tell the two apart — a working bond lists the host under `connected LE`.
 
 ### A Windows host will not reconnect after the app restarts
 
-The most significant limitation, and it is **not** explained by the pairing problem above.
-Measured against a host that was correctly bonded on LE and driving input seconds earlier:
+After a BleHid restart, a correctly paired Windows host can reconnect to the PC's Classic
+radio instead of the LE peripheral. Manual Connect does not repair it. Remove the PC from
+the host and pair the correct entry again, then confirm `peers` lists it under `connected LE`.
 
-- 180 s hands-off after restarting the peripheral — the subscriber count stayed at 1 (the
-  Mac, which had already reconnected by itself).
-- A further 120 s after clicking **Connect** on the host — no LE bind, no ATT traffic.
-
-Polling `peers` throughout, rather than checking it once at the end, changed the picture.
-The host is not silent: it reappears under `classic:`, holds for roughly 20–45 s, and
-drops. It never appears under `connected LE`, and the HID service is never discovered.
-That is the same failure mode as Android 11 above — the host attaches to the PC's Classic
-radio instead of the LE peripheral and never binds HOGP.
-
-macOS reconnects on its own from the identical peripheral, and Android 16 reconnects
-reliably when you tap **Connect**. The Windows failure is stronger than either: even a
-manual Connect does nothing. **Removing the device on the host and pairing again is the
-only remedy** — verified directly, after which input worked and the host was listed under
-`connected LE`.
-
-#### What has been ruled out
-
-The original hypothesis was a stale GATT attribute cache: `GattServiceProvider` rebuilds
-its attribute table on every process start, and a bonded client is permitted to skip
-service discovery. The conforming remedy is the Service Changed characteristic (`0x2A05`
-in `0x1801`), which Windows blocks applications from creating:
-
-```
-> probe 1801
-  service 0x1801: DisabledByPolicy
-```
-
-A GATT client inspecting the PC confirms Windows exposes `0x1801` with `0x2A05` itself, so
-the platform reserves the mechanism and does not fire it on behalf of applications. That
-is a real platform gap, but it is not what breaks reconnection here.
-
-| Hypothesis | Test | Result |
-| --- | --- | --- |
-| Stale attribute cache | Does the host connect and then misread the table? | **No** — it never binds LE, so nothing reads the table |
-| Handle layout shifting between runs | Publish filler services first to force the HID service onto a different handle range | **No change** — identical classic-only failure with shifted and with original handles |
-| Host-side cache expiry on a timer | Wait hours between restarts | **No** — failure is immediate and persistent |
-| Lock/unlock or Bluetooth toggle refreshing the cache | Toggle the host radio, lock and unlock the host | **No** — neither restores the LE bind |
-
-The handle test is the decisive one. If the host were reconnecting against a cached table,
-moving the HID service would have changed the symptom; keeping it in place would have made
-reconnection work. Neither happened, and the failure signature was identical in both
-directions. Handle layout has no bearing on it.
-
-Android was used as a control. It re-reads HID Information and the Report Map on every
-reconnect, so it performs a full service discovery and could never be caught out by a
-rebuilt attribute table:
-
-```
-[read] host read HID Information
-[read] host read Report Map
-[subs] Keyboard input report: 1 subscriber(s)
-```
-
-That explains why Android survives restarts, but it also means Android cannot show
-whether the handles move.
-
-What remains is transport selection: after the peripheral's process restarts, the Windows
-host resolves the bond to the PC's Classic radio rather than to the LE peripheral, and
-never retries on LE. Why it does so, and why re-pairing corrects it, is unknown.
-
-The practical mitigation is to avoid restarting: [background mode](#background-mode) keeps
-one peripheral alive across sessions.
-
-(Note that the subscriber counts `k=`/`m=` do *not* drop when a bonded host disconnects,
-so they are not a liveness signal. Use the peer list.)
+Subscriber counts can remain stale after a host disconnects, so use `peers` as the liveness
+check. The experiments that ruled out handle movement and cache expiry are documented in
+[DEVELOPMENT.md](DEVELOPMENT.md#separate-windows-host-reconnect-bug).
 
 ### Input is broadcast in `all hosts` mode
 
@@ -379,15 +319,9 @@ all of them simultaneously. Per-host targeting is the normal mode; broadcast is 
 
 ### Broadcast pointer motion is coarser
 
-Radio capacity does not split proportionally between links. Measured: one host at a 10 ms
-report interval is smooth; two hosts at 20 ms drift after you stop moving; two hosts at
-40 ms are clean. The pump therefore paces broadcast at `interval × 2 × hostCount`.
-
-`NotifyValueAsync` returns when a report is *queued*, not delivered, so overload is
-invisible to the sender and only shows up as pointer lag on the host.
-
-The `× 2` factor is fitted to a **single measurement on one pair of hosts**. It may not
-hold for three or more.
+When one host is selected, Windows 11 uses that host's negotiated connection interval.
+Broadcast sends every report to every subscribed host and is paced more conservatively,
+so pointer motion is less smooth. Select a single host for normal use.
 
 ### Pointer behaviour on scaled and mismatched displays
 
@@ -447,104 +381,27 @@ cheaper than winning the hook chain.
   address with the Classic side, so hosts see one dual-mode device — and some hosts list it
   twice ([details](#a-windows-host-can-pair-to-the-wrong-entry)).
 - **GAP Appearance cannot be set.** The PC advertises as a computer, not a keyboard, so
-  some hosts show the wrong icon, and at least one — a Samsung TV — appears to filter it
-  out of its device list entirely. `AppearanceAdvertiser` attempts a workaround; it cannot
-  work ([details](#advertisement-payloads-are-restricted-to-manufacturer-data)).
-- **BR/EDR cannot be suppressed.** `BluetoothEnableIncomingConnections` returns
-  `E_INVALIDARG` for every variant tried, including a null radio handle.
+  some hosts show the wrong icon, and at least one Samsung TV appears to filter it out.
+- **BR/EDR cannot be suppressed from this app.** The PC remains visible as a dual-mode
+  Bluetooth device.
 - **Consumer-control and media keys are not implemented** — the report descriptor covers a
   boot-style keyboard and a 3-button mouse with wheel only.
 
 ---
 
-## Platform findings
+## Development
 
-Three questions came up repeatedly and are now settled empirically. Each probe ships as a
-command so the results can be reproduced.
-
-### Classic Bluetooth HID Device role is impossible in user mode
-
-Classic HID needs L2CAP PSMs `0x11` (control) and `0x13` (interrupt). Windows exposes only
-RFCOMM to user mode. The `l2cap` command tests this, with RFCOMM as a control case:
-
-```
-> l2cap
-  RFCOMM     (control): SUCCESS - listening
-  L2CAP stream    0x11: socket() -> WSAEPROTOTYPE (wrong protocol for this socket type)
-  L2CAP seqpacket 0x11: socket() -> WSAESOCKTNOSUPPORT (socket type not supported)
-  L2CAP seqpacket 0x13: socket() -> WSAESOCKTNOSUPPORT (socket type not supported)
-```
-
-The failure is at `socket()` creation, not `bind()` — Windows will not create the socket at
-all. A kernel-mode Bluetooth profile driver (`bthddi.h`) could open L2CAP channels, but
-that requires driver signing and an installer.
-
-### Generic Attribute (`0x1801`) is reserved
-
-`GattServiceProvider.CreateAsync(0x1801)` returns `DisabledByPolicy`, so applications
-cannot expose Service Changed — a bonded client that skips service discovery cannot be
-told the attribute table was rebuilt.
-
-### Advertisement payloads are restricted to manufacturer data
-
-A desktop app may not put arbitrary sections into a `BluetoothLEAdvertisement`. Adding a
-GAP Appearance (`0x19`) or a service-UUID list (`0x03`) section throws at `Start()`:
-
-```
-> appearance
-[appr] FAILED: Attempted to perform an unauthorized operation.
-```
-
-Only `ManufacturerData` is permitted, which cannot carry a real Appearance field. So the
-appearance workaround above never had a chance of working, and the `appearance` command
-fails on every machine rather than only on some. The same restriction shapes the
-`--diagnose` probes: the bare advertisement they publish has to use manufacturer data.
-
----
-
-## How it works
-
-```
-src/
-  BleHid.Core/
-    HidDescriptors.cs      HID report map + GATT UUIDs
-    HidReports.cs          Report encoding, character and key name maps
-    BleHidPeripheral.cs    GATT server, advertising, host targeting, notifications
-    InputCapture.cs        WH_KEYBOARD_LL / WH_MOUSE_LL hooks, hotkeys, pass-through
-    VirtualKeyMap.cs       Windows virtual keys to HID usages
-    BluetoothDiagnostics.cs  Connected peer enumeration
-    AppearanceAdvertiser.cs  GAP appearance experiment (no effect)
-    ClassicRadio.cs        BR/EDR suppression experiment (no effect)
-    ServiceProbe.cs        GATT service creation probe
-    L2capProbe.cs          Classic HID L2CAP capability probe
-  BleHid.Cli/
-    Program.cs             Console interface and the report send pump
-spike/                     Early PowerShell capability probes
-```
-
-A few decisions worth knowing if you read the code:
-
-- **The input hook thread is MTA.** An STA hook thread dispatches WinRT completions through
-  the same message pump the input callbacks saturate, which stalls notifications for
-  seconds.
-- **Pointer motion is coalesced, keystrokes are not.** The hook produces far more motion
-  events than a BLE link can carry, so pending deltas are merged; every keystroke must be
-  delivered.
-- **The send pump is signal-driven, not polled.** `Task.Delay` has ~15 ms granularity on
-  Windows, which alone made the pointer feel sluggish.
-- **Host switching is queued through the report channel**, not applied directly from the
-  hook. Applying it inline races the send pump and can deliver a key-release report to the
-  *new* host, leaving a stuck modifier on the old one.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, build validation, platform
+constraints, packet traces, control-peripheral setup, debugging tools, tested hypotheses,
+and the experiment protocol.
 
 ---
 
 ## Roadmap
 
-- Find why a Windows host never re-establishes the link after the app restarts — it
-  reconnects on the Classic radio instead of LE, and the attribute table has been ruled out
+- Platform fixes for provider-restart reconnect and bonded CCCD persistence
 - Test iPad, smart TV and Linux hosts
 - Consumer-control and media keys
-- A UI — the console interface is deliberately the first step
 
 ---
 

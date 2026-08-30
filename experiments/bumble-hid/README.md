@@ -71,8 +71,10 @@ Find your dongle's transport moniker:
 python -m bumble.apps.usb_probe
 ```
 
-That prints the USB devices Bumble can open. Use the index or the vendor:product pair, e.g.
-`usb:0` or `usb:0a12:0001`. Append `!` to force claiming the interface.
+That prints the USB devices Bumble can open. Use the vendor:product pair, for example
+`usb:0a12:0001`. Do not use an index such as `usb:0` on a machine with multiple radios;
+device ordering can change and select the Windows radio. Append `!` to force claiming the
+interface.
 
 ## Running
 
@@ -101,7 +103,7 @@ These flags control what the peripheral looks like on the air:
 First pairing:
 
 ```powershell
-python ble_hid_keyboard.py --transport usb:0 --advertising open
+python ble_hid_keyboard.py --transport usb:VID:PID --advertising open
 ```
 
 Pair from the phone as you would any Bluetooth keyboard. Anything you type into the
@@ -110,13 +112,17 @@ script's console is then typed on the phone, so put the cursor in a text field f
 To test reconnection, restart it with an outage long enough to watch on the phone:
 
 ```powershell
-python ble_hid_keyboard.py --transport usb:0 --advertising open --advertise-after 30
+python ble_hid_keyboard.py --transport usb:VID:PID --advertising open --advertise-after 30
 ```
 
 The phone should show the device disconnect, sit there for the full 30 seconds, and then
 reconnect on its own once advertising resumes — with no tap in Bluetooth settings.
 
 ## What this found
+
+The complete hypothesis matrix, later dual-mode and Service Changed experiments, packet
+analysis, and corrected conclusions are in
+[DEVELOPMENT.md](../../DEVELOPMENT.md#reconnect-hypotheses-already-tested).
 
 ### Two real bugs, both in this peripheral
 
@@ -167,14 +173,13 @@ Two traps that produced hours of bad data:
   reconnect after a kill measures when the dongle got reset, not how fast the peer came
   back. `--advertise-after` exists to make the outage real and observable.
 - **Never send test keystrokes unless a text field is focused on the phone.** Unfocused HID
-  keystrokes are interpreted as system shortcuts. Mine switched Bluetooth off mid-test and
-  invalidated an entire run.
+  keystrokes are interpreted as system shortcuts and can switch Bluetooth off mid-test.
 
 There is a second thing worth checking while this is running. Bumble builds the advertising
 payload itself, so this peripheral advertises a GAP Appearance of keyboard — which a Windows
-desktop app [cannot set](../../README.md#known-issues). If the Samsung TV lists the PC under
-this implementation but not the Windows one, that confirms appearance filtering is why it
-never showed up.
+desktop app [cannot set](../../DEVELOPMENT.md#advertising-facts). If a host lists this
+implementation but not the Windows one, that is evidence that it filters on system-owned
+advertising identity or appearance.
 
 ## Known gaps
 
