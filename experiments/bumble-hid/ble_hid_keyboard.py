@@ -63,6 +63,9 @@ FILTER_POLICY_ACCEPT_LIST_ONLY = 3
 
 KEYBOARD_APPEARANCE = 0x03C1
 
+# What Android recorded for the Windows PC: major class computer, minor class desktop.
+WINDOWS_CLASS_OF_DEVICE = 0x2E4104
+
 # vendor_id_source=USB-IF, vendor=Linux Foundation, product 1, version 1.0.0
 PNP_ID = bytes([0x02, 0x6B, 0x1D, 0x01, 0x00, 0x00, 0x01])
 
@@ -135,25 +138,33 @@ def build_hid_service() -> tuple[Service, Characteristic, Characteristic]:
     return service, keyboard_input, mouse_input
 
 
-def build_advertising_data(name: str) -> bytes:
-    return bytes(
-        AdvertisingData(
-            [
-                data_types.CompleteLocalName(name),
-                data_types.IncompleteListOf16BitServiceUUIDs(
-                    [GATT_HUMAN_INTERFACE_DEVICE_SERVICE]
-                ),
-                data_types.Appearance(
-                    Appearance.Category.HUMAN_INTERFACE_DEVICE,
-                    Appearance.HumanInterfaceDeviceSubcategory.KEYBOARD,
-                ),
-                data_types.Flags(
-                    AdvertisingData.Flags.LE_GENERAL_DISCOVERABLE_MODE
-                    | AdvertisingData.Flags.BR_EDR_NOT_SUPPORTED
-                ),
-            ]
-        )
+def build_advertising_data(
+    name: str, dual_mode: bool = False, appearance: bool = True
+) -> bytes:
+    # Windows advertises 0x1a: general discoverable, simultaneous LE and BR/EDR capable
+    # on both controller and host, and no BR/EDR Not Supported bit. Bit 4 is the host
+    # half of that claim and has no name in Bumble's enum, so the value is set raw.
+    flags = (
+        AdvertisingData.Flags(0x1A)
+        if dual_mode
+        else AdvertisingData.Flags.LE_GENERAL_DISCOVERABLE_MODE
+        | AdvertisingData.Flags.BR_EDR_NOT_SUPPORTED
     )
+    structures = [
+        data_types.CompleteLocalName(name),
+        data_types.IncompleteListOf16BitServiceUUIDs(
+            [GATT_HUMAN_INTERFACE_DEVICE_SERVICE]
+        ),
+    ]
+    if appearance:
+        structures.append(
+            data_types.Appearance(
+                Appearance.Category.HUMAN_INTERFACE_DEVICE,
+                Appearance.HumanInterfaceDeviceSubcategory.KEYBOARD,
+            )
+        )
+    structures.append(data_types.Flags(flags))
+    return bytes(AdvertisingData(structures))
 
 
 def set_appearance(device: Device, appearance: int) -> None:
@@ -193,8 +204,15 @@ async def load_filter_accept_list(device: Device, peers: list[hci.Address]) -> N
         logger.info('accept list += %s', peer)
 
 
-async def start_advertising(device: Device, mode: str, name: str) -> None:
-    advertising_data = build_advertising_data(name)
+async def start_advertising(
+    device: Device,
+    mode: str,
+    name: str,
+    dual_mode: bool = False,
+    public: bool = False,
+    appearance: bool = True,
+) -> None:
+    advertising_data = build_advertising_data(name, dual_mode, appearance)
     peers = await bonded_peers(device)
 
     if mode != 'open' and not peers:
@@ -203,9 +221,16 @@ async def start_advertising(device: Device, mode: str, name: str) -> None:
 
     if mode == 'open':
         await device.start_advertising(
-            advertising_data=advertising_data, auto_restart=True
+            advertising_data=advertising_data,
+            own_address_type=(
+                hci.OwnAddressType.PUBLIC if public else hci.OwnAddressType.RANDOM
+            ),
+            auto_restart=True,
         )
-        logger.info('advertising: undirected, open to any device')
+        logger.info(
+            'advertising: undirected, open to any device%s',
+            ' (public address)' if public else '',
+        )
         return
 
     if mode == 'directed':
@@ -268,7 +293,12 @@ async def run(args: argparse.Namespace) -> None:
         )
 
         hid_service, keyboard_input, mouse_input = build_hid_service()
-        set_appearance(device, KEYBOARD_APPEARANCE)
+        if args.no_appearance:
+            logger.warning(
+                'omitting appearance: Android should file this as an unclassified device'
+            )
+        else:
+            set_appearance(device, KEYBOARD_APPEARANCE)
 
         device_information_characteristics = [
             Characteristic(
@@ -291,8 +321,18 @@ async def run(args: argparse.Namespace) -> None:
                 )
             )
 
-        device.add_services(
-            [
+        services = [
+            Service(
+                GATT_DEVICE_INFORMATION_SERVICE,
+                device_information_characteristics,
+            ),
+            hid_service,
+        ]
+        if args.no_battery:
+            logger.warning('omitting Battery Service: this violates HOGP, for testing only')
+        else:
+            services.insert(
+                0,
                 Service(
                     GATT_BATTERY_SERVICE,
                     [
@@ -304,26 +344,36 @@ async def run(args: argparse.Namespace) -> None:
                         )
                     ],
                 ),
-                Service(
-                    GATT_DEVICE_INFORMATION_SERVICE,
-                    device_information_characteristics,
-                ),
-                hid_service,
-            ]
-        )
+            )
+
+        device.add_services(services)
 
         # Bonding is the whole point: the keys must survive a process restart for the
         # reconnect test to mean anything. Android rejects pairing (SMP UNSPECIFIED)
         # unless the responder also distributes its IRK, so keep the default key set.
         # identity_address_type must be RANDOM: otherwise Bumble hands the peer the
         # dongle's public address as our identity, the peer stores that, and every
-        # later reconnect targets an address nothing is advertising on.
+        # later reconnect targets an address nothing is advertising on. --public-identity
+        # deliberately takes that public address, and advertises on it too so the two
+        # still agree, to mimic a dual-mode PC whose LE and Classic identities are one.
+        identity_address_type = (
+            PairingConfig.AddressType.PUBLIC
+            if args.public_identity
+            else PairingConfig.AddressType.RANDOM
+        )
+        # Android pairs a dual-mode device over BR/EDR and demands MITM there, which
+        # Just Works cannot satisfy. Numeric comparison can, and the delegate auto-accepts.
+        io_capability = (
+            PairingDelegate.IoCapability.DISPLAY_OUTPUT_AND_YES_NO_INPUT
+            if args.classic
+            else PairingDelegate.IoCapability.NO_OUTPUT_NO_INPUT
+        )
         device.pairing_config_factory = lambda _connection: PairingConfig(
             sc=True,
-            mitm=False,
+            mitm=args.classic,
             bonding=True,
-            delegate=PairingDelegate(PairingDelegate.IoCapability.NO_OUTPUT_NO_INPUT),
-            identity_address_type=PairingConfig.AddressType.RANDOM,
+            delegate=PairingDelegate(io_capability),
+            identity_address_type=identity_address_type,
         )
 
         def on_connection(connection):
@@ -363,8 +413,27 @@ async def run(args: argparse.Namespace) -> None:
         if args.rpa:
             device.le_privacy_enabled = True
 
+        # Android files a device as DUAL only when both transports share one identity,
+        # which is why this pairs with --public-identity.
+        if args.classic:
+            device.classic_enabled = True
+            device.class_of_device = WINDOWS_CLASS_OF_DEVICE
+            logger.warning(
+                'classic enabled, class of device 0x%06X (computer/desktop)',
+                WINDOWS_CLASS_OF_DEVICE,
+            )
+
         await device.power_on()
-        logger.info('identity address: %s', device.static_address)
+
+        if args.classic:
+            await device.set_connectable(True)
+            await device.set_discoverable(True)
+            logger.info('classic: connectable and discoverable')
+
+        logger.info(
+            'identity address: %s',
+            device.public_address if args.public_identity else device.static_address,
+        )
         if args.rpa:
             logger.warning('advertising RPA %s, peer must resolve it', device.random_address)
 
@@ -378,7 +447,14 @@ async def run(args: argparse.Namespace) -> None:
             logger.info('radio silent for %d s', args.advertise_after)
             await asyncio.sleep(args.advertise_after)
 
-        await start_advertising(device, args.advertising, args.name)
+        await start_advertising(
+            device,
+            args.advertising,
+            args.name,
+            dual_mode=args.dual_mode_flags,
+            public=args.public_identity,
+            appearance=not args.no_appearance,
+        )
 
         typing_tasks: set[asyncio.Task] = set()
 
@@ -453,6 +529,32 @@ def main() -> None:
         '--no-pnp-id',
         action='store_true',
         help='Omit the PnP ID characteristic, to test whether hosts need it to reconnect',
+    )
+    parser.add_argument(
+        '--dual-mode-flags',
+        action='store_true',
+        help='Advertise the flags Windows uses (0x1a), claiming BR/EDR support',
+    )
+    # Android files the Windows PC with appearance 0, unlike every keyboard that works.
+    parser.add_argument(
+        '--no-appearance',
+        action='store_true',
+        help='Advertise and report no appearance, as the Windows peripheral does',
+    )
+    parser.add_argument(
+        '--no-battery',
+        action='store_true',
+        help='omit the Battery Service, which HOGP requires a HID device to instantiate',
+    )
+    parser.add_argument(
+        '--classic',
+        action='store_true',
+        help='Also be a BR/EDR device with a computer class, so Android files it as DUAL',
+    )
+    parser.add_argument(
+        '--public-identity',
+        action='store_true',
+        help="Use the dongle's public address as the identity, as a dual-mode PC does",
     )
     parser.add_argument(
         '--rpa',

@@ -15,8 +15,8 @@ import logging
 import os
 from pathlib import Path
 
-from bumble.core import AdvertisingData
-from bumble.device import Device
+from bumble.core import AdvertisingData, UUID
+from bumble.device import Device, Peer
 from bumble.hci import Address
 from bumble.pairing import PairingConfig, PairingDelegate
 from bumble.transport import open_transport
@@ -25,6 +25,43 @@ HERE = Path(__file__).resolve().parent
 HID_SERVICE_UUID = '1812'
 
 logger = logging.getLogger('central_probe')
+
+
+def describe_flags(value: int) -> str:
+    names = [flag.name for flag in AdvertisingData.Flags if value & flag]
+    return ' | '.join(names) or 'none'
+
+
+async def dump(device: Device, name_filter: str, seconds: float) -> None:
+    """Prints every advertising structure rather than just the name, because the Flags
+    byte and the address type are what separate a dual-mode host from an LE-only one."""
+    seen: set[tuple[str, bytes]] = set()
+
+    def on_advertisement(advertisement):
+        name = advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) or ''
+        if name_filter and name_filter.lower() not in name.lower():
+            return
+        # Keyed on the payload too, so a rotating address or a changed payload reprints.
+        key = (str(advertisement.address), bytes(advertisement.data))
+        if key in seen:
+            return
+        seen.add(key)
+        print(
+            f'\n{advertisement.address}  rssi={advertisement.rssi}  '
+            f'connectable={advertisement.is_connectable}'
+        )
+        for ad_type, value in advertisement.data.ad_structures:
+            label = getattr(ad_type, 'name', None) or f'0x{int(ad_type):02X}'
+            print(f'  {label:<44} {value.hex()}')
+            if ad_type == AdvertisingData.FLAGS and value:
+                print(f'  {"":<44} {describe_flags(value[0])}')
+
+    device.on('advertisement', on_advertisement)
+    await device.start_scanning(active=True)
+    await asyncio.sleep(seconds)
+    await device.stop_scanning()
+    if not seen:
+        logger.warning('nothing matched %r', name_filter or 'any advertiser')
 
 
 async def scan(device: Device, seconds: float) -> None:
@@ -107,6 +144,34 @@ async def probe(device: Device, address: str, hold: float) -> None:
     await connection.disconnect()
 
 
+async def dump_gatt(device: Device, address: str) -> None:
+    """Discovery only, no pairing: shows whether the handle layout moves between runs."""
+    logger.info('connecting to %s', address)
+    connection = await device.connect(address)
+    peer = Peer(connection)
+
+    await peer.discover_services()
+    for service in peer.services:
+        await peer.discover_characteristics(service=service)
+        logger.info(
+            'service %s handles 0x%04X-0x%04X', service.uuid, service.handle, service.end_group_handle
+        )
+        for characteristic in service.characteristics:
+            await peer.discover_descriptors(characteristic)
+            logger.info(
+                '  char %s decl=0x%04X value=0x%04X',
+                characteristic.uuid,
+                characteristic.handle - 1,
+                characteristic.handle,
+            )
+            if characteristic.uuid == UUID.from_16_bits(0x2B2A):
+                logger.info('    database hash %s', (await characteristic.read_value()).hex())
+            for descriptor in characteristic.descriptors:
+                logger.info('    desc %s 0x%04X', descriptor.type, descriptor.handle)
+
+    await connection.disconnect()
+
+
 async def run(args: argparse.Namespace) -> None:
     async with await open_transport(args.transport) as hci_transport:
         device = Device.with_hci(
@@ -124,7 +189,15 @@ async def run(args: argparse.Namespace) -> None:
 
         await device.power_on()
 
-        if args.name:
+        if args.dump is not None:
+            await dump(device, args.dump, args.seconds)
+        elif args.gatt:
+            address = args.address or await find_by_name(device, args.name, args.seconds)
+            if address is None:
+                logger.error('no advertiser matching %r', args.name)
+                return
+            await dump_gatt(device, address)
+        elif args.name:
             address = await find_by_name(device, args.name, args.seconds)
             if address is None:
                 logger.error('no advertiser matching %r', args.name)
@@ -145,7 +218,19 @@ def main() -> None:
     parser.add_argument('--address', help='peer address, e.g. AA:BB:CC:DD:EE:FF/P')
     parser.add_argument('--name', help='scan for this name, then connect immediately')
     parser.add_argument('--scan', action='store_true', help='list nearby advertisers')
+    parser.add_argument(
+        '--dump',
+        nargs='?',
+        const='',
+        metavar='NAME',
+        help='print full advertising payloads, optionally filtered by name substring',
+    )
     parser.add_argument('--seconds', type=float, default=8.0)
+    parser.add_argument(
+        '--gatt',
+        action='store_true',
+        help='discover services and print handles, without pairing',
+    )
     parser.add_argument(
         '--hold',
         type=float,

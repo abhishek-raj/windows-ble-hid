@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.Versioning;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Foundation;
@@ -23,6 +24,12 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     private readonly List<PeripheralDiagnostics> _diagnostics = [];
     private readonly GattProtectionLevel _protection;
     private readonly ConcurrentDictionary<string, string> _hostNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, BluetoothLEDevice> _hostDevices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _connectionIntervalsMs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _connectionParameterGate = new(1, 1);
+    private readonly PointerPacingOverrides _pointerPacing =
+        PointerPacingOverrides.Load(AppPaths.InRoot("pointer-pacing.json"));
+    private int _pacingWarningLogged;
     private string? _selectedHostId;
     private bool _localOnly;
     private bool _warnedMissingHost;
@@ -36,12 +43,33 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     private byte[] _lastMouseReport = new byte[HidReports.MouseReportLength];
     private byte _protocolMode = 0x01; // 0x00 = boot, 0x01 = report
 
+    [SupportedOSPlatformGuard("windows10.0.22000.0")]
+    private static bool CanReadConnectionParameters =>
+        OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
+
     public IReadOnlyList<PeripheralDiagnostics> Diagnostics => _diagnostics;
     public GattServiceProviderAdvertisementStatus AdvertisementStatus =>
         _provider?.AdvertisementStatus ?? GattServiceProviderAdvertisementStatus.Created;
 
     public int SubscribedKeyboardClients => _keyboardInput?.SubscribedClients.Count ?? 0;
     public int SubscribedMouseClients => _mouseInput?.SubscribedClients.Count ?? 0;
+
+    public int MouseReportIntervalMs(int configuredIntervalMs)
+    {
+        if (_pointerPacing.Warning is { } warning && Interlocked.Exchange(ref _pacingWarningLogged, 1) == 0)
+            Log?.Invoke($"[link] {warning}");
+
+        var clients = _mouseInput?.SubscribedClients ?? [];
+        return clients
+            .Where(client => _selectedHostId is null || string.Equals(
+                client.Session.DeviceId.Id, _selectedHostId, StringComparison.OrdinalIgnoreCase))
+            .Select(client => Math.Max(
+                _connectionIntervalsMs.GetValueOrDefault(client.Session.DeviceId.Id),
+                _pointerPacing.MinimumIntervalMs(
+                    _hostNames.GetValueOrDefault(client.Session.DeviceId.Id), configuredIntervalMs)))
+            .DefaultIfEmpty(_pointerPacing.MinimumIntervalMs(null, configuredIntervalMs))
+            .Max();
+    }
 
     /// <summary>Null means reports are broadcast to every subscribed host.</summary>
     public string? SelectedHostId => _selectedHostId;
@@ -278,7 +306,10 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         };
 
         characteristic.SubscribedClientsChanged += (sender, _) =>
+        {
             Log?.Invoke($"[subs] {name}: {sender.SubscribedClients.Count} subscriber(s)");
+            _ = RefreshConnectionParametersAsync();
+        };
 
         var descriptorParameters = new GattLocalDescriptorParameters
         {
@@ -294,6 +325,56 @@ public sealed class BleHidPeripheral : IAsyncDisposable
             descriptorResult.Error == BluetoothError.Success);
 
         return characteristic;
+    }
+
+    private async Task RefreshConnectionParametersAsync()
+    {
+        if (!CanReadConnectionParameters) return;
+
+        await _connectionParameterGate.WaitAsync();
+        try
+        {
+            foreach (var host in Hosts())
+            {
+                if (!_hostDevices.TryGetValue(host.DeviceId, out var device))
+                {
+                    device = await BluetoothLEDevice.FromIdAsync(host.DeviceId);
+                    if (device is null) continue;
+                    if (!string.IsNullOrWhiteSpace(device.Name))
+                        _hostNames[host.DeviceId] = device.Name;
+                    device.ConnectionParametersChanged += OnConnectionParametersChanged;
+                    _hostDevices[host.DeviceId] = device;
+                }
+
+                UpdateConnectionInterval(device);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log?.Invoke($"[link] could not read connection interval: {ex.Message}");
+        }
+        finally
+        {
+            _connectionParameterGate.Release();
+        }
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void OnConnectionParametersChanged(BluetoothLEDevice sender, object args) =>
+        UpdateConnectionInterval(sender);
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void UpdateConnectionInterval(BluetoothLEDevice device)
+    {
+        var parameters = device.GetConnectionParameters();
+        if (parameters.ConnectionInterval == 0) return;
+
+        var intervalMs = (int)Math.Ceiling(parameters.ConnectionInterval * 1.25);
+        if (_connectionIntervalsMs.TryGetValue(device.DeviceId, out var previous) && previous == intervalMs)
+            return;
+
+        _connectionIntervalsMs[device.DeviceId] = intervalMs;
+        Log?.Invoke($"[link] connection interval -> {intervalMs} ms");
     }
 
     public Task SendKeyboardAsync(KeyModifiers modifiers, params byte[] usages)
@@ -453,6 +534,16 @@ public sealed class BleHidPeripheral : IAsyncDisposable
             _provider = null;
         }
         _batteryProvider = null;
+        if (CanReadConnectionParameters)
+        {
+            foreach (var device in _hostDevices.Values)
+            {
+                device.ConnectionParametersChanged -= OnConnectionParametersChanged;
+                device.Dispose();
+            }
+        }
+        _hostDevices.Clear();
+        _connectionIntervalsMs.Clear();
         return ValueTask.CompletedTask;
     }
 }

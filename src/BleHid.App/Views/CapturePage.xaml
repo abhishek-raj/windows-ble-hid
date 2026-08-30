@@ -46,10 +46,10 @@
       <ui:CardControl Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
           <StackPanel>
-            <ui:TextBlock Text="Pointer report interval" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="Minimum pointer interval" FontTypography="BodyStrong" />
             <ui:TextBlock FontTypography="Caption" TextWrapping="Wrap"
                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="A BLE link carries one packet per connection interval. Sending faster just queues in the controller and adds latency." />
+                          Text="Windows 11 automatically uses each host's negotiated interval. Raise this minimum to trade smoothness for lower queueing." />
           </StackPanel>
         </ui:CardControl.Header>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

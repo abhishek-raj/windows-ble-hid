@@ -42,10 +42,10 @@ public static class CaptureSession
         // top of that: measured, 2 hosts needed 40 ms rather than 20 ms.
         int PointerIntervalMs()
         {
+            var hostIntervalMs = peripheral.MouseReportIntervalMs(mouseIntervalMs);
             var links = Math.Max(1, peripheral.SubscribedMouseClients);
-            if (links == 1) return mouseIntervalMs;
             var broadcasting = peripheral.SelectedHostId is null && !peripheral.IsLocalTarget;
-            return broadcasting ? mouseIntervalMs * 2 * links : mouseIntervalMs * links;
+            return broadcasting ? hostIntervalMs * 2 * links : hostIntervalMs;
         }
 
         // Signal-driven rather than polled: Task.Delay has ~15 ms granularity on Windows,
@@ -84,7 +84,7 @@ public static class CaptureSession
                                 ? peripheral.SelectLocal()
                                 : peripheral.SelectNextHost();
                             capture.SetPassThrough(peripheral.IsLocalTarget);
-                            log($"  [host] -> {target}");
+                            log($"  [host] -> {target} (pointer interval {PointerIntervalMs()} ms)");
                             continue;
                         }
 

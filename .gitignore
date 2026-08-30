@@ -47,3 +47,8 @@ Desktop.ini
 # Real device identities: Bluetooth addresses and hostnames stay out of the repo.
 *.local.md
 tests/devices.local.md
+
+# Android bug reports: huge, and full of unrelated device and account data.
+bugreport-*/
+*.btsnoop
+btsnoop_hci.log
