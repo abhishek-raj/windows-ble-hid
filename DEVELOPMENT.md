@@ -96,73 +96,340 @@ layout was:
 Two discovery-only dumps across provider restarts produced the same handles and Database
 Hash. Handle instability is not the reconnect bug.
 
-## Android reconnect failure after provider restart
+## Android provider-restart reconnect root cause
+
+### Executive summary
+
+The Android failure is tied specifically to destruction and recreation of the WinRT
+`GattServiceProvider`. It is not a normal BLE reconnect failure.
+
+When the provider process exits, Windows temporarily removes the application-owned HOGP
+service. When the process starts again, it recreates the same service with the same
+attribute handles and the same Database Hash. Windows nevertheless retains and later sends
+a pending Service Changed indication for the HID range. Android reads the unchanged hash,
+receives the indication, invalidates its HOGP state, and then fails to rebuild that state
+because its generic GATT cache concludes that the identical hash requires no rediscovery.
+
+There is a second, independent part of the same provider-lifetime problem: the recreated
+Windows server does not restore the bonded client's HID report CCCD values. Even when a
+real database change forces Android to reconnect and run full discovery, Android can open
+HOGP from stale local report metadata without writing the report CCCDs again. The phone UI
+then says Input is enabled while WinRT has no subscribed clients and cannot deliver input.
+
+In short:
+
+```text
+provider removed/recreated
+  -> pending Service Changed survives
+  -> final GATT definitions and Database Hash are unchanged
+  -> Android HID cache is invalidated while generic GATT cache is retained
+  -> HOGP is not opened, or opens without restored report subscriptions
+```
+
+Terminology matters here: Service Changed is not part of the BLE advertising payload.
+Windows sends it as an encrypted ATT Handle Value **indication** on characteristic
+`0x2A05` after the LE connection is established.
 
 ### Definitive lifecycle control
 
-While the same provider process remains alive, Android reconnects automatically after:
+The strongest control is the provider lifetime itself. With the same process and the same
+`GattServiceProvider` instance still alive, Android reconnects automatically after both:
 
-- going out of range and returning;
-- switching phone Bluetooth off and on.
+- the phone goes out of range and returns;
+- Bluetooth is switched off and back on at the phone.
 
-After the .NET process recreates the provider, Android does not restore usable input
-without manual intervention. This isolates the problem to provider teardown/recreation,
-not ordinary link loss, advertising reachability, pairing keys, or privacy addresses.
+The phone restores the encrypted LE connection and the HID report subscriptions in those
+cases. The failure appears only after the .NET process/provider is stopped and recreated.
+This rules out the following as the primary cause:
 
-### Observed packet sequence
+- the advertisement becoming unreachable after a client disconnects;
+- the Android bond or encryption keys being generally invalid;
+- the Windows RPA or identity-resolution setup;
+- ordinary link supervision loss;
+- Android refusing all automatic HOGP reconnects to this peripheral.
 
-On the first background connection after provider recreation:
+Closing the UI while leaving the provider resident is therefore materially different from
+terminating the provider process. A Windows restart necessarily destroys the provider too.
 
-1. Android establishes LE and encryption succeeds with a 16-byte key.
-2. Android reads Database Hash `0x2B2A`.
-3. Windows sends Service Changed `0x2A05` for the HID handle range.
-4. Android confirms the indication.
-5. Android's generic GATT cache can decide that the hash is unchanged and skip discovery.
-6. Android HID Host has already reset its report cache and receives a synthetic close while
-   in `BTA_HH_IDLE_ST`.
-7. No HID client holds the link, so Android disconnects after the idle timeout.
+### The final GATT database is identical after restart
 
-Android native logs identify the failed transition:
+The first hypothesis was that WinRT assigned new handles every time the application rebuilt
+the local service. A discovery-only central probe disproved it.
+
+Two complete GATT discoveries were performed with a .NET provider restart between them:
+
+```text
+run 1: HID service 0x1812 = 0x005D-0x006D
+       keyboard Report value = 0x0067
+       mouse Report value    = 0x006B
+
+run 2: HID service 0x1812 = 0x005D-0x006D
+       keyboard Report value = 0x0067
+       mouse Report value    = 0x006B
+```
+
+The Database Hash read from `0x2B2A` was also unchanged:
+
+```text
+77537a94abbc92c684af103158748c74
+```
+
+Android's persisted `HidReport` entries pointed to those same service and Report handles.
+The failure is therefore not caused by Android using stale numeric handles against a
+renumbered HOGP service.
+
+This result needs precise wording. During provider shutdown, the service really is removed
+from the live server, so Windows has observed an intermediate database mutation. After the
+new process recreates it, however, the database visible to the reconnecting client is
+identical to the database it cached before shutdown. Windows does not reconcile or cancel
+the pending Service Changed state after reaching that identical final database.
+
+### Stage 1: provider removal destroys Android's working HOGP state
+
+Before the outage test, Android was fully connected and input worked. Its bond record had
+a complete HOGP descriptor, both Report entries, and reconnect permission enabled.
+
+When the .NET provider was stopped while that LE relationship still existed, the Android
+native log showed this sequence:
+
+```text
+04:57:00.922  BTA_GATTC_SRVC_CHG_EVT
+04:57:00.925  HID state BTA_HH_CONN_ST receives BTA_HH_GATT_CLOSE_EVT
+04:57:00.932  remove cached HID descriptor due to service change
+04:57:01.000  BTA_GATTC_SRVC_DISC_DONE_EVT
+04:57:01.000  synthetic BTA_HH_GATT_OPEN_EVT
+04:57:01.053  HID service not found
+04:57:01.054  HOGP open fails
+04:57:02.081  Disable rearm concept, don't initiate connection
+```
+
+At that moment the failure to find HID is expected: the application process is down, so
+`0x1812` is genuinely absent. The harmful part is the resulting persistent state loss.
+Afterward, Android's native HID dump reported `num_devices: 0`, and the PC's bond block no
+longer contained `HidReport`, `HogpDescriptor`, or `HogpReConnectAllowed`. The generic bond
+and `ServiceLe = 0x1812` remained, but the state needed by HID Host to rearm the HOGP
+connection had been removed.
+
+This explains why some later experiments saw no automatic attempt at all. Once this stage
+has happened, changing the server database cannot help until Android initiates another
+connection or the HOGP profile state is repaired.
+
+### Stage 2: recreated identical provider sends a pending Service Changed indication
+
+The provider was restarted and began advertising the same HOGP definition. Android later
+made a background LE connection. The raw Android btsnoop trace for that connection is:
+
+```text
+04:58:09.351  LE connection complete
+04:58:09.435  SMP Security Request
+04:58:09.436  Android enables encryption
+04:58:09.612  encryption succeeds, key size 16
+04:58:09.614  Database Hash response = 77537a94abbc92c684af103158748c74
+04:58:09.615  Android reads Server Supported Features
+04:58:09.671  Windows sends Service Changed indication
+                attribute 0x000C, affected range 0x005D-0x006D
+04:58:09.672  Android confirms the indication
+04:58:09.673  Android reads preferred connection parameters
+04:58:09.732  Android reads Database Hash again
+04:58:09.791  Database Hash response is still 77537a94abbc92c684af103158748c74
+04:58:10.052  Android requests discovery, but the stack reloads its retained cache
+04:58:11.053  no client app holds the link; one-second idle timer starts
+04:58:12.055  Android requests disconnect
+```
+
+There is no primary-service discovery, HID characteristic discovery, Report Map read, or
+report CCCD write in this failed visit.
+
+The Android native stack logs expose the mismatch between its two internal consumers of
+the same event:
 
 ```text
 BTA_GATTC_SRVC_CHG_EVT
 bta_hh_le_co_reset_rpt_cache
-BTA_HH_IDLE_ST + BTA_HH_GATT_CLOSE_EVT -> Unexpected event
+State BTA_HH_IDLE_ST, Event BTA_HH_GATT_CLOSE_EVT
+Unexpected event BTA_HH_GATT_CLOSE_EVT in BTA_HH_IDLE_ST
 ```
 
-The Android source path is `system/bta/hh/bta_hh_le.cc`, particularly
-`bta_hh_le_service_changed`, `bta_hh_le_service_discovery_done`, and
-`bta_hh_gattc_callback`.
+Generic GATT has just validated and retained the unchanged database. HID Host receives the
+Service Changed callback, deletes its cached report metadata, marks the HID service as
+changed, and injects a synthetic close so that it can reopen after rediscovery. Because
+HID Host is still `IDLE` on this background connection, that synthetic close is rejected.
+Generic GATT then sees the matching hash and does not produce the rediscovery sequence HID
+Host expects. Nothing claims the link, so the generic connection-idle timeout closes it.
 
-### Bonded CCCD persistence
+The relevant Android source is in `system/bta/hh/bta_hh_le.cc`:
 
-Bluetooth Core, Vol 3, Part G, Section 3.3.3.3 requires a Client Characteristic
-Configuration Descriptor value to persist across connections for bonded devices.
-Provider recreation loses the Windows-side report subscriptions. CCCD values are not part
-of the Database Hash, so the client cannot detect that loss by validating the hash.
+- `bta_hh_gattc_callback` forwards `BTA_GATTC_SRVC_CHG_EVT`;
+- `bta_hh_le_service_changed` clears report state and injects the synthetic close;
+- `bta_hh_le_service_discovery_done` injects a synthetic open after rediscovery;
+- `bta_hh_security_cmpl` either loads cached reports or starts HOGP discovery.
 
-With Android Bluetooth off, the normal HOGP provider was started and then an empty private
-service was added in the same process. Before Android returned, the private service was
-present at `0x006E`, the Database Hash had changed, and `0x1812` remained at
-`0x005D-0x006D`. When Bluetooth was turned on, Android reconnected automatically. Windows
-sent a genuine Service Changed indication covering `0x005D-0x006E`, Android confirmed it,
-detected the new hash, and performed full service discovery.
+This is why the exact ordering matters. Android reads the final hash before Windows sends
+the queued indication. Reading that same hash again after the indication cannot reveal the
+intermediate remove/re-add cycle, because the current definitions are identical.
 
-HOGP and UHID opened and Android showed Input enabled, but Android still did not write the
-keyboard or mouse CCCDs; WinRT had zero subscribed clients. Android opened HOGP from cached
-report metadata before hash validation completed, then performed generic discovery without
-reconciling notification configuration.
+### Successful manual connection control
 
-Input-profile toggling and an explicit disconnect/reconnect did not repair that forced
-state. Returning to the normal database and manually connecting caused Android to reread
-HID Information and Report Map and subscribe to both reports.
+A successful manual connection to the same provider and same database produced a different
+profile-level path:
 
-The complete platform fixes are therefore:
+```text
+04:44:35  generic GATT connection and encryption
+04:44:35  Database Hash = 77537a94abbc92c684af103158748c74
+04:44:35  Connect HOGP(LE) Profile
+04:44:36  HOGP Open status = BTA_HH_OK
+04:44:36  descriptor length = 113 bytes
+```
 
-- Windows persists bonded CCCD values across provider recreation; and/or
-- Android rewrites affected report CCCDs after Service Changed and rediscovery.
+The .NET server then observed HID Information and Report Map reads followed by keyboard and
+mouse report subscriptions. The identical hash is therefore not itself a problem. The
+failure requires the provider-restart Service Changed state and the Android HID state/order
+described above.
 
-Keeping one provider resident avoids both conditions until the process or Windows restarts.
+### Why alternating the Database Hash before connection did not solve it
+
+An experimental provider alternated between two private service UUIDs on every process
+start. It changed the Database Hash successfully while leaving the HOGP definition stable.
+That did not provide a dependable recovery.
+
+The ordering makes this approach insufficient:
+
+1. Android connects and reads the already changed hash.
+2. Android stores that value as the current database.
+3. Windows sends the older pending Service Changed indication.
+4. Android reads the hash again.
+5. The second value matches the one stored milliseconds earlier.
+
+Changing the database before the client connects therefore does not guarantee that the
+pending indication is consumed before the new hash becomes the client's baseline. The
+experiment was reverted.
+
+### Genuine offline database-change control
+
+A second experiment separated an actually changed final database from the identical-final-
+database case.
+
+While Android Bluetooth was off:
+
+1. The normal HOGP provider was started.
+2. An empty private service was added in the same process.
+3. HOGP remained at `0x005D-0x006D`.
+4. The private service occupied `0x006E`.
+5. Database Hash changed to `7288815729c595c5295c7021f9d1cd7d`.
+6. The final advertisement contained both HOGP and the private service.
+
+Only after that final state was verified was Android Bluetooth turned on. Android connected
+automatically. The trace showed:
+
+```text
+14:44:56.660  LE connection complete
+14:44:56.893  HOGP opens from cached Report metadata; Report IDs 1 and 2 registered locally
+14:44:56.923  new Database Hash response arrives
+14:44:56.924  hash mismatch starts full GATT service discovery
+14:44:56.955  Windows sends Service Changed for 0x005D-0x006E
+14:44:56.956  Android confirms the indication
+14:44:58.669  full generic GATT discovery completes
+```
+
+This is an important positive control:
+
+- Android can reconnect automatically after the server changes while Android is offline.
+- Windows can produce a new Database Hash for a genuine final database change.
+- Android recognizes the mismatch and performs full generic GATT discovery.
+- The Service Changed indication covers the affected final range and is confirmed.
+
+It also exposed the second failure. Android had already opened HOGP from its cached Report
+entries before the new hash response arrived. It registered Report IDs 1 and 2 in its local
+HID state, but sent no ATT Write Request to the Windows keyboard or mouse report CCCDs.
+Android UI showed Input enabled and UHID was open, while WinRT reported zero subscribed
+clients. No input reports could be delivered.
+
+The trace is bidirectional because both systems expose GATT services. Earlier analysis
+incorrectly treated reads of coincidentally numbered phone attributes as Android reading
+the Windows HID CCCDs. That conclusion was retracted. The valid evidence is:
+
+- no Android-to-Windows ATT Write Request for either HID report CCCD;
+- no WinRT `SubscribedClientsChanged` callback;
+- keyboard and mouse subscriber counts remained zero;
+- target switching could not select the phone.
+
+Disabling and re-enabling Android's Input device profile did not cause CCCD writes. A
+visible manual disconnect/reconnect in that forced state also did not restore subscriptions.
+After the experiment was removed and the normal provider returned, a manual connection
+caused Android to reread HID Information and Report Map and subscribe to both reports.
+
+### Bluetooth specification requirements
+
+Two GATT requirements interact here.
+
+Bluetooth Core, Vol 3, Part G, Section 2.5.2 says that after receiving Service Changed, a
+client must consider the affected handle range invalid and perform discovery before using a
+service in that range, unless it obtains the changed database definitions through an
+out-of-band mechanism. Android's generic GATT layer does perform full discovery when the
+final Database Hash genuinely differs. In the identical-final-database case, however, its
+robust-caching path retains the matching cache while HID Host has already deleted its own
+report state.
+
+Bluetooth Core, Vol 3, Part G, Section 3.3.3.3 states that the Client Characteristic
+Configuration Descriptor value shall persist across connections for bonded devices. The
+WinRT provider recreation does not preserve the application report subscriptions. This is
+observable because the new `GattLocalCharacteristic` objects have no subscribed clients
+until Android explicitly writes their CCCDs again.
+
+CCCD **values** are not inputs to the Database Hash. For a CCCD, the hash includes its
+attribute handle and type, not its per-client value. Therefore an identical Database Hash
+cannot tell Android that Windows lost the bonded notification configuration.
+
+The specification does not generally require a client to rewrite every bonded CCCD after
+every reconnect: the server is required to preserve those values. Android could be more
+robust by reconciling CCCDs after Service Changed and HOGP rediscovery, but Windows cannot
+depend on that behavior to compensate for lost bonded server state.
+
+### Precise platform responsibility
+
+The evidence supports several separate statements:
+
+1. **The Service Changed indication is real, not inferred.** It appears in raw HCI as an
+   ATT Handle Value Indication on `0x2A05`, and Android confirms it.
+2. **The final database after an ordinary provider restart is identical.** HOGP handles,
+   Report handles, Report Map, and Database Hash are stable.
+3. **A transient change did occur.** Provider teardown removed HOGP before provider
+   recreation restored it. Windows therefore had a reason to mark a service change at the
+   time of removal.
+4. **Windows does not reconcile the pending indication with the identical final state.** It
+   sends the queued HID-range indication after first serving the unchanged final hash.
+5. **Android has a state/order bug.** Generic GATT and HID Host leave their caches in
+   contradictory states, and HID Host's synthetic close/reopen sequence fails from `IDLE`.
+6. **Windows loses bonded CCCD state across provider recreation.** That violates the GATT
+   persistence expectation and independently prevents input even when HOGP opens.
+
+Calling the Service Changed indication simply "invalid" is too strong because the service
+was transiently removed. Calling the behavior correct is also too strong because the
+reconnecting client sees an identical final database/hash and receives the pending
+indication in an order that strands a standards-based client. The narrow Windows-side
+questions are:
+
+- Can a pending Service Changed record be cancelled or coalesced when the identical service
+  definition is restored before the bonded client reconnects?
+- Can Windows deliver the pending indication before answering the reconnecting client's
+  first Database Hash read?
+- Can local-service ownership or bonded CCCD state survive a provider process handoff?
+- If the same service UUID/handles return, can Windows restore each bonded client's CCCD
+  values on the recreated characteristics?
+
+### User-visible result and workaround
+
+The practical behavior is:
+
+- Same provider, temporary link loss: automatic reconnect and input work.
+- Provider stopped: HOGP is absent and cannot accept input.
+- Provider recreated: Android may require a manual Connect; after cache damage, forgetting
+  and re-pairing may be required to restore report subscriptions.
+- Windows restart: always destroys the provider, so autostart reduces downtime but does not
+  preserve the old GATT server lifetime.
+
+The current mitigation is to keep one provider process resident for as long as possible.
+That avoids the trigger but cannot solve Windows reboot or application-update restarts.
 
 ## Reconnect hypotheses already tested
 
@@ -182,14 +449,6 @@ Do not repeat these without new evidence or a materially different setup.
 | Cache hit alone breaks Android HOGP | Falsified. Bumble reconnects with a valid cache. |
 | Changing the database before Android connects fixes everything | Partial only. It restores automatic HOGP open but not report CCCDs. |
 | Advertise only a private service, then add HOGP | Falsified. Android will not initiate the staging connection without `0x1812`. |
-
-### Why alternating Database Hash values failed
-
-An experiment alternated two private service UUIDs on each process start. It successfully
-changed the Database Hash while leaving the HID schema stable. It did not fix reconnect:
-Android read and stored the new hash before Windows delivered the queued Service Changed
-indication. The second hash read therefore matched the value Android had stored moments
-earlier. The experiment was removed.
 
 ## Separate Windows-host reconnect bug
 
