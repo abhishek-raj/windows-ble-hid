@@ -165,6 +165,10 @@ public static class CaptureSession
                 stopped.TrySetResult();
                 return;
             }
+
+            // Local recovery must not wait behind a notification to a host that just vanished.
+            // Keep GoLocal queued as well so a healthy host still receives key releases first.
+            capture.SetPassThrough(true);
             keyQueue.Enqueue((Queued.GoLocal, KeyModifiers.None, null));
             Wake();
         };

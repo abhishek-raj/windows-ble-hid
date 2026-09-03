@@ -308,6 +308,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         characteristic.SubscribedClientsChanged += (sender, _) =>
         {
             Log?.Invoke($"[subs] {name}: {sender.SubscribedClients.Count} subscriber(s)");
+            ReturnLocalIfTargetUnavailable();
             _ = RefreshConnectionParametersAsync();
         };
 
@@ -329,8 +330,6 @@ public sealed class BleHidPeripheral : IAsyncDisposable
 
     private async Task RefreshConnectionParametersAsync()
     {
-        if (!CanReadConnectionParameters) return;
-
         await _connectionParameterGate.WaitAsync();
         try
         {
@@ -342,11 +341,14 @@ public sealed class BleHidPeripheral : IAsyncDisposable
                     if (device is null) continue;
                     if (!string.IsNullOrWhiteSpace(device.Name))
                         _hostNames[host.DeviceId] = device.Name;
-                    device.ConnectionParametersChanged += OnConnectionParametersChanged;
+                    device.ConnectionStatusChanged += OnConnectionStatusChanged;
+                    if (CanReadConnectionParameters)
+                        device.ConnectionParametersChanged += OnConnectionParametersChanged;
                     _hostDevices[host.DeviceId] = device;
                 }
 
-                UpdateConnectionInterval(device);
+                if (CanReadConnectionParameters)
+                    UpdateConnectionInterval(device);
             }
         }
         catch (Exception ex)
@@ -357,6 +359,18 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         {
             _connectionParameterGate.Release();
         }
+    }
+
+    private void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
+    {
+        Log?.Invoke($"[link] connection status -> {sender.ConnectionStatus}");
+        if (sender.ConnectionStatus != BluetoothConnectionStatus.Disconnected) return;
+
+        ReturnLocalIfTargetUnavailable(
+            _hostDevices
+                .Where(pair => pair.Value.ConnectionStatus == BluetoothConnectionStatus.Connected)
+                .Select(pair => pair.Key),
+            _selectedHostId is null ? "all hosts disconnected" : "selected host disconnected");
     }
 
     [SupportedOSPlatform("windows10.0.22000.0")]
@@ -403,6 +417,22 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         foreach (var client in _mouseInput?.SubscribedClients ?? []) ids.Add(client.Session.DeviceId.Id);
 
         return ids.Select(id => new HostTarget(id, ShortAddress(id), _hostNames.GetValueOrDefault(id))).ToList();
+    }
+
+    private void ReturnLocalIfTargetUnavailable()
+    {
+        var message = _selectedHostId is null
+            ? "all hosts disconnected"
+            : "selected host disconnected";
+        ReturnLocalIfTargetUnavailable(Hosts().Select(host => host.DeviceId), message);
+    }
+
+    private void ReturnLocalIfTargetUnavailable(IEnumerable<string> availableHostIds, string message)
+    {
+        if (!TargetAvailability.IsUnavailable(_localOnly, _selectedHostId, availableHostIds)) return;
+
+        SelectLocal();
+        Log?.Invoke($"[host] {message} - returning input to this PC");
     }
 
     /// <summary>Cycles this PC -> host1 -> ... -> hostN -> this PC. Safe to call from any thread.</summary>
@@ -534,13 +564,12 @@ public sealed class BleHidPeripheral : IAsyncDisposable
             _provider = null;
         }
         _batteryProvider = null;
-        if (CanReadConnectionParameters)
+        foreach (var device in _hostDevices.Values)
         {
-            foreach (var device in _hostDevices.Values)
-            {
+            device.ConnectionStatusChanged -= OnConnectionStatusChanged;
+            if (CanReadConnectionParameters)
                 device.ConnectionParametersChanged -= OnConnectionParametersChanged;
-                device.Dispose();
-            }
+            device.Dispose();
         }
         _hostDevices.Clear();
         _connectionIntervalsMs.Clear();

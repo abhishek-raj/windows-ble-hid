@@ -107,6 +107,25 @@ than BLE can carry them. Every keyboard state transition must be preserved. Targ
 travel through the keyboard queue so a key-release report cannot be delivered to the new
 host and leave a modifier stuck on the old one.
 
+### Host loss fails back to local input
+
+If the selected host disconnects during capture, `BleHidPeripheral` immediately selects
+the local target and `InputCapture` stops swallowing keyboard and mouse events. Broadcast
+mode does the same after its last connected host disappears. Reconnection does not restore
+the previous target automatically, because sending input to a host without an explicit
+user switch would be unsafe.
+
+This uses `BluetoothLEDevice.ConnectionStatusChanged`, not only
+`GattLocalCharacteristic.SubscribedClientsChanged`. Bonded CCCD entries can remain in
+WinRT's subscribed-client collection after the physical ACL has dropped, which is exactly
+the state that previously stranded local input. Subscriber removal remains a secondary
+signal for hosts that do remove their entries.
+
+In resident mode, `Ctrl+Alt+Q` also enables hook pass-through synchronously before its
+`GoLocal` command enters the report queue. The queued command is retained to preserve key
+release ordering on a healthy connection, while local recovery no longer depends on a
+possibly stalled `NotifyValueAsync` call to a vanished host.
+
 ## GATT and HOGP layout
 
 The app exposes one composite HID service:

@@ -139,6 +139,10 @@ pick a host. From there it is hotkeys only — there is no console to type into:
 | `Ctrl` + `D` + `C` | Switch target: this PC → host 1 → … → host N → this PC |
 | `Ctrl` + `Alt` + `Q` | Return input to this PC (does **not** exit — use `--stop`) |
 
+If the selected host disconnects, capture automatically returns input to this PC instead
+of continuing to swallow it. Reconnecting the host does not retarget it automatically;
+use `Ctrl` + `D` + `C` when you are ready to switch back.
+
 Only one instance runs at a time; a second `--background` is refused. Output goes to
 `%LOCALAPPDATA%\BleHid\logs\blehid.log`.
 
