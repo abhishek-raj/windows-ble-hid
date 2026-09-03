@@ -77,6 +77,42 @@ Everything else in the app is either scripted input (`type`, `move`) or diagnost
 
 ---
 
+## Android companion (experimental)
+
+The source-only Android companion in [android/BleHid.Companion](android/BleHid.Companion)
+adds connection monitoring and diagnostics for Android 12 or later. It can:
+
+- associate with a BleHid computer through Android's Companion Device Manager;
+- keep an app-owned BLE GATT connection active in a foreground service;
+- inspect HOGP presence, report count, Service Changed events, and Database Hash changes;
+- retry failed GATT connections with bounded backoff and export a diagnostic timeline;
+- request a system Bluetooth-profile reconnect on Android 17 or later.
+
+Android 12-16 do not expose the profile reconnect API to companion apps. On those versions,
+the recovery action opens the computer's Bluetooth settings so you can tap **Connect**.
+The companion cannot directly repair Android's system HID cache or lost HID report
+subscriptions. It intentionally does not subscribe to the HID report characteristics,
+because an app-owned subscription is separate from Android's system input path.
+
+In two measured Android 16 trials, its presence-triggered GATT connection did nevertheless
+bootstrap a full automatic HOGP reconnect after the Windows provider restarted: Android
+reread the HID metadata and restored both report subscriptions without a Connect tap. This
+is an experimental workaround based on connection ordering, not a guaranteed platform fix;
+manual Connect and re-pairing remain the fallback.
+
+Build and install the debug APK:
+
+```powershell
+cd android\BleHid.Companion
+.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:installDebug
+```
+
+See the [Android companion README](android/BleHid.Companion/README.md) for setup and design
+details.
+
+---
+
 ## Background mode
 
 Two reasons to use it. Convenience: the peripheral is already up and the hotkeys already
@@ -282,8 +318,12 @@ and pair it again.
 
 Keep BleHid in the notification area or use [background mode](#background-mode) to avoid
 unnecessary provider restarts. A Windows restart still destroys the provider and cannot be
-hidden by autostart. See [DEVELOPMENT.md](DEVELOPMENT.md#android-reconnect-failure-after-provider-restart)
+hidden by autostart. See [DEVELOPMENT.md](DEVELOPMENT.md#android-provider-restart-reconnect-root-cause)
 for the Service Changed and bonded-CCCD analysis.
+
+The experimental [Android companion](#android-companion-experimental) automatically restored
+HOGP and both report subscriptions in two consecutive Android 16 restart trials. Keep the
+manual recovery above as a fallback until that result is proven across more devices and cycles.
 
 ### A Windows host can pair to the wrong entry
 

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BleHid Companion</string>
+    <string name="monitor_notification_channel">BleHid connection</string>
+    <string name="monitor_notification_title">Monitoring BleHid</string>
+    <string name="monitor_notification_text">Keeping a diagnostic Bluetooth connection active</string>
+    <string name="stop_monitoring">Stop</string>
+    <string name="share_diagnostics">Share diagnostics</string>
+</resources>

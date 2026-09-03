@@ -21,6 +21,12 @@ packages/
 !packages/build/
 .nuget/
 
+# Android / Gradle
+.gradle/
+.kotlin/
+local.properties
+**/build/
+
 # Test results
 [Tt]est[Rr]esult*/
 *.trx

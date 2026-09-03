@@ -12,6 +12,8 @@ workarounds.
 - `src/BleHid.Cli` is the interactive diagnostic client and resident background process.
 - `src/BleHid.App` is the WPF desktop UI. It shares one `PeripheralService` instance for
   the lifetime of the process.
+- `android/BleHid.Companion` is the Android 12+ companion. It owns a separate diagnostic
+  GATT connection and never receives or subscribes to HID input reports.
 - `tests/BleHid.Core.Tests` contains unit tests for report encoding, paths, pacing
   configuration, key mapping, and other platform-independent behavior.
 - `experiments/bumble-hid` is a separate HOGP control peripheral and central probe built
@@ -24,6 +26,8 @@ There is no solution file. Build projects directly:
 dotnet build src\BleHid.Cli\BleHid.Cli.csproj --configuration Debug
 dotnet build src\BleHid.App\BleHid.App.csproj --configuration Debug
 dotnet test tests\BleHid.Core.Tests\BleHid.Core.Tests.csproj --configuration Debug
+cd android\BleHid.Companion
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
 A running app locks `BleHid.Core.dll`. Stop it before rebuilding or MSBuild can retry the
@@ -32,6 +36,41 @@ copy and leave an old binary in the output directory.
 The projects compile against the Windows 11 build 22000 SDK so they can use connection
 parameter APIs. `SupportedOSPlatformVersion` remains build 19041. Windows 11-only calls
 must stay behind runtime guards so Windows 10 remains supported.
+
+### Android companion boundaries
+
+The companion uses only public Android APIs. Companion Device Manager associates it with
+the advertised HOGP service, and a `connectedDevice` foreground service owns an app-level
+`BluetoothGatt` client. That client discovers services, counts Report characteristics,
+reads Database Hash `0x2B2A`, receives the framework's Service Changed callback, and keeps
+a bounded diagnostic event timeline. Failed connections retry after 2, 4, 8, 16, and 30
+seconds; retry exhaustion requires an explicit user action or a new presence event. GATT
+connect and service discovery have explicit timeouts because Android may leave a direct
+connection pending without delivering a callback. Database Hash is optional, so its read
+timeout records the connection as ready with the hash unavailable instead of reconnecting.
+
+The manifest must declare `android.software.companion_device_setup`; Samsung Android 16
+throws from `CompanionDeviceManager.associate` if it is absent. Association MAC strings
+are normalized before `BluetoothAdapter.getRemoteDevice` because `MacAddress.toString()`
+is lowercase while that API rejects lowercase addresses on the tested phone. On Android
+14 or later, the exact scanned `BluetoothDevice` from `AssociationInfo.associatedDevice`
+is preferred so identity, pseudo, and private-address resolution stays with the platform.
+
+The app-level GATT client must not enable either HID report CCCD. Android routes input
+through its system HID Host and UHID path, not through an application's GATT callback. An
+app subscription would create a Windows subscriber without repairing system input and
+would make diagnostics misleading.
+
+Android 17 adds public `BluetoothDevice.connect()` profile reconnection for a Companion
+Device-associated app. The project currently compiles against SDK 36.1, so the guarded
+compatibility bridge invokes that public API only when runtime API level 37 or later is
+present. Android 12-16 provide no non-privileged HID Host connect or cache-repair API; the
+companion opens system Bluetooth settings for manual recovery on those versions.
+
+The companion's presence and GATT connection can keep the BLE ACL useful and improve
+observability, but neither is evidence that Android's HID Host is open or that Windows has
+restored the bonded report CCCDs. The Windows subscriber count and actual keyboard/mouse
+input remain the authoritative end-to-end checks.
 
 ## Architecture constraints
 
@@ -358,6 +397,136 @@ visible manual disconnect/reconnect in that forced state also did not restore su
 After the experiment was removed and the normal provider returned, a manual connection
 caused Android to reread HID Information and Report Map and subscribe to both reports.
 
+### Battery-only staging control
+
+A follow-up replaced the private staging service with the standard Battery Service
+`0x180F`. With Android Bluetooth off, the normal provider was stopped and an active,
+connectable Battery Service was started with a readable and notifiable Battery Level
+`0x2A19`. HOGP did not exist during this stage.
+
+When Android Bluetooth was turned on, Android did not establish an LE connection, read
+Battery Level, or subscribe to it. Adding a complete HOGP provider while Battery Service
+remained active also did not make Android reconnect automatically, and a manual connection
+attempt failed. Android therefore never reached the point where it could rediscover HOGP
+or rewrite the input report CCCDs.
+
+An already-connected non-Android bonded host provided a useful positive control. It read
+and subscribed to Battery Level during the Battery-only stage. When HOGP was added, it
+immediately read HID Information and Report Map and subscribed to both keyboard and mouse
+reports. This proves that WinRT successfully added HOGP to the live local database and that
+the report CCCDs were writable. It does not prove anything about Android CCCD recovery,
+because Android never accepted the prerequisite Battery-only connection.
+
+Battery Service is therefore no better than a private service for staging an Android
+connection. Android's background connection is triggered by the HOGP profile/advertised
+`0x1812`, not by the presence of an arbitrary standard GATT service.
+
+After the experiment was removed and the normal provider was restored, Android still did
+not reconnect automatically and a manual connection attempt failed without reaching the
+Windows GATT server. Forgetting and re-pairing the PC caused fresh HID Information and
+Report Map reads followed by both keyboard and mouse report subscriptions. This confirms
+that the failed service-removal sequence had again damaged Android's persisted HOGP state,
+and that a fresh bond repaired the CCCDs.
+
+### HOGP-first, Battery-added control
+
+A corrected control kept HOGP present throughout the final database and used Battery
+Service only as the database delta. With Android Bluetooth off, HOGP was created and
+started first, then an active Battery Service was appended in the same process. An
+independent discovery verified:
+
+```text
+Database Hash                         a6cb993dee0d15f8cdefcc9d0e03531e
+HOGP 0x1812                           0x005D-0x006D
+  keyboard Report value               0x0067
+  mouse Report value                  0x006B
+Battery Service 0x180F                0x006E-0x0071
+```
+
+The HOGP and Report handles were identical to the normal database; Battery was the only
+appended service. Android connected automatically when Bluetooth was turned on, reread HID
+Information and Report Map, and subscribed to Battery, keyboard, and mouse. Raw HCI proved
+that Android explicitly restored both HID report CCCDs:
+
+```text
+16:54:50.553  LE connection complete
+16:54:50.920  encryption succeeds; cached HOGP opens
+16:54:51.106  Service Changed indication for 0x005D-0x0071
+16:54:51.109  Android confirms the indication
+16:54:51.159  new Database Hash response
+16:54:51.160  hash mismatch starts full service discovery
+16:54:53.327  Android reads HID Information 0x005F
+16:54:53.354  Android reads Report Map 0x0061
+16:54:53.459  Android writes 0x0100 to keyboard CCCD 0x0068
+16:54:53.476  Android writes 0x0100 to mouse CCCD 0x006C
+```
+
+The native state ordering explains why this run repaired the CCCDs. Cached HOGP reached
+`BTA_HH_CONN_ST` before Service Changed arrived, so HID Host accepted its synthetic close.
+The new hash then forced full generic discovery. HID Host reopened after discovery, found
+HOGP, and ran `bta_hh_le_write_ccc` for both reports.
+
+This differs from the earlier private-service run, where the new hash response arrived and
+started discovery before the Service Changed indication. HOGP opened from cached metadata,
+but the later generic discovery did not make it rewrite the server CCCDs. The successful
+Battery run therefore proves that Android can repair the report subscriptions when packet
+and HID-state ordering align; it does not prove that Battery UUID `0x180F` has special
+recovery semantics.
+
+#### Repeatability matrix
+
+A temporary A/B harness exposed two verified final databases while keeping HOGP handles
+fixed:
+
+```text
+base     hash 77537a94abbc92c684af103158748c74  HOGP 0x005D-0x006D
+battery  hash a6cb993dee0d15f8cdefcc9d0e03531e  HOGP 0x005D-0x006D, Battery 0x006E-0x0071
+```
+
+It timestamped provider events and subscriber callbacks. Later cycles used Wireless ADB
+to disable Bluetooth, verify `bluetooth_on=0`, start the final database, independently
+verify handles and hash, and only then enable Bluetooth. Results were:
+
+| Transition | Result |
+| --- | --- |
+| Base to Battery, immediate append | No automatic HOGP; manual Connect restored both CCCDs. |
+| Battery to Base | Android sometimes showed connected without HOGP or CCCDs; one repetition fully recovered automatically. |
+| Base to Battery, 1500 ms append delay | Full automatic HOGP and both CCCDs in a valid synchronized run. |
+| Battery to identical Battery, same 1500 ms delay | No automatic HOGP in repeated trials; manual Connect restored subscriptions. |
+
+One apparent failed delayed trial was excluded. Its ADB bug report proved Android connected
+during the 1500 ms HOGP-only interval, before Battery existed. It read the base hash, later
+received Service Changed for the base range, reread the same hash, and disconnected. Phone
+UI timing alone was therefore not sufficient to classify a cycle.
+
+The ADB-synchronized successful delayed trial adds an important nuance. Android was enabled
+only after the final Battery database was verified. Its packet sequence was:
+
+```text
+18:11:09.503  LE connection complete
+18:11:09.579  Android reads Database Hash
+18:11:09.761  hash response = a6cb993dee0d15f8cdefcc9d0e03531e
+18:11:09.817  Service Changed indication for 0x005D-0x0071
+18:11:09.823  Android confirms and rereads Database Hash
+18:11:09.878  same hash response; generic GATT skips discovery
+18:11:09.940  Android reads HID Information 0x005F
+18:11:09.998  Android reads Report Map 0x0061
+18:11:10.163  Android writes 0x0100 to keyboard CCCD 0x0068
+18:11:10.252  Android writes 0x0100 to mouse CCCD 0x006C
+```
+
+This successful run did **not** require a hash mismatch or full generic rediscovery. HID
+Host had entered a usable open path and rebuilt HOGP from the retained generic cache, then
+rewrote both CCCDs. Conversely, a synchronized restart to the identical Battery database
+made controller connection attempts but established no ATT link and no HOGP subscribers.
+
+The complete matrix confirms that neither Battery UUID `0x180F`, a real hash transition,
+nor a delay guarantees recovery. They perturb a race between connection initiation,
+Service Changed delivery, generic cache validation, and HID Host state. An identical final
+database still fails, so alternating Battery presence would manipulate the race rather
+than fix it. The harness was removed; Battery remains part of the normal provider but is
+not actively advertised as a database-revision mechanism.
+
 ### Bluetooth specification requirements
 
 Two GATT requirements interact here.
@@ -384,6 +553,52 @@ The specification does not generally require a client to rewrite every bonded CC
 every reconnect: the server is required to preserve those values. Android could be more
 robust by reconciling CCCDs after Service Changed and HOGP rediscovery, but Windows cannot
 depend on that behavior to compensate for lost bonded server state.
+
+### Companion-assisted restart control
+
+The Android companion produced full automatic recovery in two consecutive provider
+restart cycles on the Android 16 test phone. No Connect tap, Bluetooth toggle, unpairing,
+or phone unlock was used.
+
+Before the first cycle, both Android clients shared the healthy LE channel: system HID Host
+and `dev.blehid.companion`. Stopping the WPF provider removed HOGP. The companion briefly
+kept the channel alive after HID Host released it, observed the intermediate database, and
+then stopped when Companion Device Manager reported the advertisement away. Relaunching
+the provider produced this ordering:
+
+```text
+15:04:26  Companion Device Manager reports the associated advertisement present
+15:04:27  companion GATT becomes the first ACL holder
+15:04:27  Android HID Host attaches to the same LE channel
+15:04:28  Windows receives HID Information and Report Map reads
+15:04:28  Windows receives keyboard and mouse subscriptions; counters = 1 / 1
+```
+
+That cycle changed the companion's saved Database Hash from the intermediate no-HOGP value
+back to the normal value, so a second cycle tested whether that transition was essential.
+Before the second shutdown Samsung had already stopped the companion client after presence
+settled; only system HID remained, and the saved hash stayed at the normal value throughout
+the outage. The second relaunch still recovered:
+
+```text
+15:07:00  companion GATT becomes the first ACL holder
+15:07:00  Android HID Host attaches immediately afterward
+15:07:01  Windows receives HID Information and Report Map reads
+15:07:01  Windows receives keyboard and mouse subscriptions; counters = 1 / 1
+```
+
+The second cycle shows that a Database Hash mismatch in the companion is not required. The
+useful action is the presence-triggered direct GATT connection when advertising returns. It
+changes connection and profile ordering enough for Android HID Host to reopen and explicitly
+restore both report CCCDs. Samsung reports the associated device away about 12-16 seconds
+after the link settles, because the connected peripheral is no longer observed advertising;
+the companion then closes its own GATT client while system HOGP remains connected.
+
+This is a measured workaround, not a privileged HID cache repair or a platform guarantee.
+The two cycles were consecutive positive trials rather than a randomized A/B matrix, and no
+keystrokes were sent during automation. HOGP state, fresh HID metadata reads, and both WinRT
+subscriber counters prove that the input transport was configured, but a human input check
+remains part of final release validation.
 
 ### Precise platform responsibility
 
@@ -425,11 +640,15 @@ The practical behavior is:
 - Provider stopped: HOGP is absent and cannot accept input.
 - Provider recreated: Android may require a manual Connect; after cache damage, forgetting
   and re-pairing may be required to restore report subscriptions.
+- Provider recreated with the experimental Android companion monitoring enabled: two
+  consecutive Android 16 trials reconnected automatically and restored both report CCCDs.
 - Windows restart: always destroys the provider, so autostart reduces downtime but does not
   preserve the old GATT server lifetime.
 
 The current mitigation is to keep one provider process resident for as long as possible.
-That avoids the trigger but cannot solve Windows reboot or application-update restarts.
+That avoids the trigger. The companion is a promising measured workaround for Android
+recovery after Windows reboot or application-update restarts, but it is not yet proven
+across Android vendors or enough cycles to replace the manual fallback.
 
 ## Reconnect hypotheses already tested
 
@@ -449,6 +668,8 @@ Do not repeat these without new evidence or a materially different setup.
 | Cache hit alone breaks Android HOGP | Falsified. Bumble reconnects with a valid cache. |
 | Changing the database before Android connects fixes everything | Partial only. It restores automatic HOGP open but not report CCCDs. |
 | Advertise only a private service, then add HOGP | Falsified. Android will not initiate the staging connection without `0x1812`. |
+| Advertise only Battery Service, then add HOGP | Falsified. Android did not create the Battery-only link and did not reconnect when `0x1812` was added. |
+| Alternate Battery after stable HOGP on every restart | Partial and nondeterministic. Real transitions sometimes restored both CCCDs, but other cycles produced only a link or no HOGP; identical HOGP-plus-Battery restarts failed. |
 
 ## Separate Windows-host reconnect bug
 

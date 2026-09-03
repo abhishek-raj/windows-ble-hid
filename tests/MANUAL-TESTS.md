@@ -118,3 +118,17 @@ Treat every line here as unproven.
 - [ ] A UI crash is written to `blehid-app.log`
 - [ ] `--diagnose` output is complete enough to triage a stranger's bug report
 - [ ] Background log rotates rather than growing past 5 MB
+
+## 11. Android companion
+
+- [ ] Fresh install opens without a crash and shows **No computer associated**
+- [ ] **Allow nearby devices** grants scan, connect, and notification permissions
+- [ ] **Find computer** opens Android's Companion Device picker without an exception
+- [ ] Selecting the advertising PC creates an association and shows the selected computer
+- [ ] Enabling **Connection monitor** starts an ongoing low-importance notification
+- [ ] GATT reaches **Ready** and reports HID service, Report count, and Database Hash state
+- [ ] Windows observes no additional keyboard or mouse report subscriber from the companion
+- [ ] Force-stopping and reopening the app restores the association and monitoring setting
+- [ ] An unreachable computer leaves **Connecting** through timeout and bounded retry
+- [ ] **Stop** in the notification disables monitoring and removes the foreground service
+- [ ] **Share diagnostics** includes the visible timeline and no account or unrelated device data
