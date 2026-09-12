@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="src/BleHid.App/Assets/blehid.png" alt="BleHid icon" width="112">
-</p>
+# BleHid
 
-<h1 align="center">BleHid</h1>
+<img src="src/BleHid.App/Assets/blehid.png" alt="BleHid icon" width="104" align="right">
 
 Turn a Windows PC into a Bluetooth Low Energy keyboard and mouse, so it can drive other
 devices over the air. No extra hardware, no software installed on the receiving device —
