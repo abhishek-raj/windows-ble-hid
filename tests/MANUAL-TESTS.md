@@ -67,7 +67,7 @@ For each device in the table above:
 - [ ] A host that drops while selected shows "no longer subscribed" rather than silently failing
 - [ ] Disconnecting the selected host immediately returns keyboard and mouse input to this PC
 - [ ] Reconnecting that host leaves the target on **This PC** until explicitly selected again
-- [ ] In resident mode, `Ctrl+Alt+Q` returns input locally even while the selected host is unreachable
+- [ ] `Ctrl+Alt+Q` returns input to this PC immediately even while the selected host is unreachable
 
 ## 5. Latency
 

@@ -59,7 +59,7 @@ public partial class App : Application
     private static async Task StartResidentAsync()
     {
         await PeripheralService.Instance.StartAsync();
-        await PeripheralService.Instance.StartCaptureAsync(resident: true);
+        await PeripheralService.Instance.StartCaptureAsync(armEarly: true);
     }
 
     /// <summary>

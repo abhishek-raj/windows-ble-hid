@@ -36,7 +36,9 @@ public sealed class PeripheralService : INotifyPropertyChanged
 
     private bool _applyingSelection;
     private bool _refreshingHosts;
-    private string _hostSignature = "";
+    private int _pollTicks;
+    // Null rather than empty: no hosts yet is a real signature the list still has to be built for.
+    private string? _hostSignature;
 
     private bool _isRunning;
     public bool IsRunning { get => _isRunning; private set => Set(ref _isRunning, value); }
@@ -47,6 +49,14 @@ public sealed class PeripheralService : INotifyPropertyChanged
     private bool _isCapturing;
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
 
+    private bool _inputLocal = true;
+
+    /// <summary>
+    /// In resident mode Ctrl+Alt+Q returns input to this PC without ending the session, so
+    /// "capturing" and "actually driving a host" are different states. The UI shows this one.
+    /// </summary>
+    public bool IsRedirecting => IsCapturing && !_inputLocal;
+
     private bool _requireEncryption = true;
     public bool RequireEncryption
     {
@@ -56,6 +66,11 @@ public sealed class PeripheralService : INotifyPropertyChanged
 
     private int _pointerIntervalMs = 10;
     public int PointerIntervalMs { get => _pointerIntervalMs; set => Set(ref _pointerIntervalMs, value); }
+
+    private int _linkIntervalMs;
+
+    /// <summary>What the pump actually paces to: the host's negotiated interval or the minimum above.</summary>
+    public int LinkIntervalMs { get => _linkIntervalMs; private set => Set(ref _linkIntervalMs, value); }
 
     private string _advertisementStatus = "Stopped";
     public string AdvertisementStatus { get => _advertisementStatus; private set => Set(ref _advertisementStatus, value); }
@@ -80,6 +95,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
         {
             var peripheral = new BleHidPeripheral(RequireEncryption);
             peripheral.Log += Append;
+            peripheral.TargetChanged += OnTargetChanged;
             await peripheral.StartAsync();
             _peripheral = peripheral;
             IsRunning = true;
@@ -110,12 +126,16 @@ public sealed class PeripheralService : INotifyPropertyChanged
         {
             await StopCaptureAsync();
             _poll.Stop();
-            if (_peripheral is not null) await _peripheral.DisposeAsync();
+            if (_peripheral is not null)
+            {
+                _peripheral.TargetChanged -= OnTargetChanged;
+                await _peripheral.DisposeAsync();
+            }
             _peripheral = null;
             IsRunning = false;
             Hosts.Clear();
             Targets.Clear();
-            _hostSignature = "";
+            _hostSignature = null;
             AdvertisementStatus = "Stopped";
             KeyboardSubscribers = MouseSubscribers = 0;
             Target = "nothing yet";
@@ -135,11 +155,17 @@ public sealed class PeripheralService : INotifyPropertyChanged
         {
             await _peripheral.RefreshHostNamesAsync();
             if (_peripheral is null) return;
-            Hosts.Clear();
-            foreach (var host in _peripheral.Hosts()) Hosts.Add(host);
-            _hostSignature = Signature(_peripheral);
-            RebuildTargets();
-            Target = _peripheral.SelectedHostDisplay;
+
+            var signature = Signature(_peripheral);
+            if (signature != _hostSignature)
+            {
+                Hosts.Clear();
+                foreach (var host in _peripheral.Hosts()) Hosts.Add(host);
+                _hostSignature = signature;
+                RebuildTargets();
+            }
+
+            SyncTargetState();
         }
         finally
         {
@@ -184,8 +210,10 @@ public sealed class PeripheralService : INotifyPropertyChanged
         return -1;
     }
 
+    // Friendly names resolve after a host subscribes, so they belong in the signature: that is
+    // what lets the list correct itself instead of needing a refresh button.
     private static string Signature(BleHidPeripheral peripheral) =>
-        string.Join('|', peripheral.Hosts().Select(h => h.DeviceId));
+        string.Join('|', peripheral.Hosts().Select(h => $"{h.DeviceId}:{h.Name}"));
 
     private void RebuildTargets()
     {
@@ -237,30 +265,27 @@ public sealed class PeripheralService : INotifyPropertyChanged
         }
     }
 
-    /// <param name="resident">
-    /// Background behaviour, as in the CLI: arms before any host has subscribed and treats
-    /// Ctrl+Alt+Q as "return input to this PC" rather than "end the session", because a hidden
-    /// window leaves no way to switch it back on.
+    /// <param name="armEarly">
+    /// A tray launch has no window to press the toggle in, so it arms before any host has subscribed.
     /// </param>
-    public async Task StartCaptureAsync(bool resident = false)
+    public async Task StartCaptureAsync(bool armEarly = false)
     {
         if (_peripheral is null || IsCapturing) return;
-        if (!resident && !CanCapture) return;
+        if (!armEarly && !CanCapture) return;
 
         _captureCancellation = new CancellationTokenSource();
         IsCapturing = true;
 
         var peripheral = _peripheral;
         var token = _captureCancellation.Token;
-        var interval = PointerIntervalMs;
 
         // Ctrl+Alt+Q ends the session, so the toggle has to follow the hotkey rather than the click.
         _ = Task.Run(async () =>
         {
             try
             {
-                await CaptureSession.RunAsync(peripheral, Append, verbose: false, interval,
-                    stopEndsSession: !resident, token);
+                await CaptureSession.RunAsync(peripheral, Append, verbose: false, () => PointerIntervalMs,
+                    stopEndsSession: true, token);
             }
             catch (Exception ex)
             {
@@ -271,7 +296,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
                 await _dispatcher.InvokeAsync(() =>
                 {
                     IsCapturing = false;
-                    Target = peripheral.SelectedHostDisplay;
+                    SyncTargetState();
                     SyncSelection();
                 });
             }
@@ -288,6 +313,34 @@ public sealed class PeripheralService : INotifyPropertyChanged
         for (var i = 0; i < 50 && IsCapturing; i++) await Task.Delay(20);
     }
 
+    /// <summary>
+    /// Ctrl+D+C retargets from the hook thread, so the UI only learns about it here.
+    /// </summary>
+    private void OnTargetChanged()
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(OnTargetChanged);
+            return;
+        }
+
+        SyncTargetState();
+        SyncSelection();
+    }
+
+    private void SyncTargetState()
+    {
+        if (_peripheral is null) return;
+
+        if (_inputLocal != _peripheral.IsLocalTarget)
+        {
+            _inputLocal = _peripheral.IsLocalTarget;
+            OnPropertyChanged(nameof(IsRedirecting));
+        }
+
+        Target = _peripheral.SelectedHostDisplay;
+    }
+
     private void RefreshCounters()
     {
         if (_peripheral is null) return;
@@ -295,10 +348,12 @@ public sealed class PeripheralService : INotifyPropertyChanged
         KeyboardSubscribers = _peripheral.SubscribedKeyboardClients;
         MouseSubscribers = _peripheral.SubscribedMouseClients;
         // Ctrl+D+C changes the target without going through the UI, so mirror it back.
-        Target = _peripheral.SelectedHostDisplay;
+        SyncTargetState();
+        LinkIntervalMs = _peripheral.MouseReportIntervalMs(PointerIntervalMs);
 
         // Hosts subscribe long after the peripheral starts, so the list cannot be built only once.
-        if (Signature(_peripheral) != _hostSignature) _ = RefreshHostsAsync();
+        _pollTicks++;
+        if (Signature(_peripheral) != _hostSignature || _pollTicks % 5 == 0) _ = RefreshHostsAsync();
         else SyncSelection();
 
         OnPropertyChanged(nameof(CanCapture));
@@ -327,5 +382,6 @@ public sealed class PeripheralService : INotifyPropertyChanged
         field = value;
         OnPropertyChanged(name);
         if (name is nameof(IsRunning) or nameof(KeyboardSubscribers)) OnPropertyChanged(nameof(CanCapture));
+        if (name is nameof(IsCapturing)) OnPropertyChanged(nameof(IsRedirecting));
     }
 }

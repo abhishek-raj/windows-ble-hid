@@ -14,21 +14,20 @@
   <StackPanel Margin="24,0,24,24">
 
       <ui:TextBlock Text="Capture" FontTypography="TitleLarge" Margin="0,0,0,4" />
-      <ui:TextBlock Text="Redirect this PC's keyboard and mouse to the selected host."
+      <ui:TextBlock Text="Redirect this PC's keyboard and mouse to a paired host."
                     FontTypography="Body" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                     TextWrapping="Wrap" Margin="0,0,0,20" />
 
       <ui:InfoBar Severity="Warning" IsClosable="False" Margin="0,0,0,16"
                   Title="Capture takes over this PC"
-                  Message="While capture is on, this window stops receiving input. Press Ctrl+Alt+Q to stop, or Ctrl+D+C to switch to the next host."
-                  IsOpen="{Binding IsCapturing}" />
+                  Message="While input is going to a host, this window stops receiving it. Press Ctrl+Alt+Q to stop capture, or Ctrl+D+C to switch to the next target."
+                  IsOpen="{Binding IsRedirecting}" />
 
-      <ui:InfoBar Severity="Informational" IsClosable="False" Margin="0,0,0,16"
-                  Title="No subscriber yet"
-                  Message="Capture needs a host subscribed to the keyboard report. Start the peripheral and pair a device first."
-                  IsOpen="{Binding CanCapture, Converter={StaticResource InverseBool}}" />
+      <ui:InfoBar x:Name="NoHostsBar" Severity="Informational" IsClosable="False" Margin="0,0,0,16"
+                  Title="No hosts yet"
+                  Message="Pair from the device you want to control, then wait for it to subscribe. On a Windows host, pick the entry shown as an input device rather than the audio one." />
 
-      <ui:CardControl Icon="{ui:SymbolIcon Keyboard24}" Margin="0,0,0,8">
+      <ui:CardControl Icon="{ui:SymbolIcon Keyboard24}" Margin="0,0,0,16">
         <ui:CardControl.Header>
           <StackPanel>
             <ui:TextBlock Text="Capture keyboard and mouse" FontTypography="BodyStrong" />
@@ -43,20 +42,42 @@
                          Click="OnToggleCapture" />
       </ui:CardControl>
 
+      <ui:TextBlock Text="Send input to" FontTypography="Subtitle" Margin="0,0,0,8" />
+
+      <ItemsControl ItemsSource="{Binding Targets}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <ui:CardControl Margin="0,0,0,8">
+              <ui:CardControl.Header>
+                <StackPanel>
+                  <ui:TextBlock Text="{Binding Title}" FontTypography="BodyStrong" />
+                  <ui:TextBlock Text="{Binding Detail}" FontTypography="Caption" TextWrapping="Wrap"
+                                Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+              </ui:CardControl.Header>
+              <RadioButton GroupName="InputTarget"
+                           IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                           Checked="OnTargetChecked" />
+            </ui:CardControl>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <ui:TextBlock Text="Pointer" FontTypography="Subtitle" Margin="0,20,0,8" />
+
       <ui:CardControl Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
           <StackPanel>
             <ui:TextBlock Text="Minimum pointer interval" FontTypography="BodyStrong" />
             <ui:TextBlock FontTypography="Caption" TextWrapping="Wrap"
                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="Windows 11 automatically uses each host's negotiated interval. Raise this minimum to trade smoothness for lower queueing." />
+                          Text="{Binding LinkIntervalMs, StringFormat='Paced to {0} ms right now — whichever is slower of this minimum and the connection interval the host negotiated.'}" />
           </StackPanel>
         </ui:CardControl.Header>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <Slider Width="160" Minimum="5" Maximum="50" TickFrequency="5" IsSnapToTickEnabled="True"
                   VerticalAlignment="Center"
-                  Value="{Binding PointerIntervalMs, Mode=TwoWay}"
-                  IsEnabled="{Binding IsCapturing, Converter={StaticResource InverseBool}}" />
+                  Value="{Binding PointerIntervalMs, Mode=TwoWay}" />
           <ui:TextBlock Width="52" Margin="12,0,0,0" VerticalAlignment="Center"
                         Text="{Binding PointerIntervalMs, StringFormat='{}{0} ms'}" />
         </StackPanel>
@@ -66,7 +87,7 @@
 
       <ui:CardControl Icon="{ui:SymbolIcon ArrowSwap24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
-          <ui:TextBlock Text="Switch to the next host" FontTypography="BodyStrong" />
+          <ui:TextBlock Text="Switch to the next target" FontTypography="BodyStrong" />
         </ui:CardControl.Header>
         <ui:TextBlock Text="Ctrl + D + C" FontFamily="Cascadia Mono, Consolas" />
       </ui:CardControl>

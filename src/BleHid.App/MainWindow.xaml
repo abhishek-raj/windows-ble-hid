@@ -36,12 +36,6 @@
           </ui:NavigationViewItem.Icon>
         </ui:NavigationViewItem>
 
-        <ui:NavigationViewItem Content="Hosts" TargetPageType="{x:Type views:HostsPage}">
-          <ui:NavigationViewItem.Icon>
-            <ui:SymbolIcon Symbol="Bluetooth24" />
-          </ui:NavigationViewItem.Icon>
-        </ui:NavigationViewItem>
-
         <ui:NavigationViewItem Content="Capture" TargetPageType="{x:Type views:CapturePage}">
           <ui:NavigationViewItem.Icon>
             <ui:SymbolIcon Symbol="Keyboard24" />
