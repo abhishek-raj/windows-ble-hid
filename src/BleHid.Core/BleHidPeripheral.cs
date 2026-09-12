@@ -51,8 +51,17 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     public GattServiceProviderAdvertisementStatus AdvertisementStatus =>
         _provider?.AdvertisementStatus ?? GattServiceProviderAdvertisementStatus.Created;
 
-    public int SubscribedKeyboardClients => _keyboardInput?.SubscribedClients.Count ?? 0;
-    public int SubscribedMouseClients => _mouseInput?.SubscribedClients.Count ?? 0;
+    public int SubscribedKeyboardClients => CountLiveClients(_keyboardInput);
+    public int SubscribedMouseClients => CountLiveClients(_mouseInput);
+
+    // WinRT keeps a bonded host's CCCD entry in SubscribedClients after the ACL drops, so a
+    // subscriber only counts while the device it belongs to has not been seen disconnecting.
+    private bool IsLiveHost(string deviceId) =>
+        !_hostDevices.TryGetValue(deviceId, out var device) ||
+        device.ConnectionStatus == BluetoothConnectionStatus.Connected;
+
+    private int CountLiveClients(GattLocalCharacteristic? characteristic) =>
+        characteristic?.SubscribedClients.Count(client => IsLiveHost(client.Session.DeviceId.Id)) ?? 0;
 
     public int MouseReportIntervalMs(int configuredIntervalMs)
     {
@@ -415,6 +424,7 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var client in _keyboardInput?.SubscribedClients ?? []) ids.Add(client.Session.DeviceId.Id);
         foreach (var client in _mouseInput?.SubscribedClients ?? []) ids.Add(client.Session.DeviceId.Id);
+        ids.RemoveWhere(id => !IsLiveHost(id));
 
         return ids.Select(id => new HostTarget(id, ShortAddress(id), _hostNames.GetValueOrDefault(id))).ToList();
     }
