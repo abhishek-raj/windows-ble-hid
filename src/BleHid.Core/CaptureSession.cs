@@ -11,6 +11,9 @@ public static class CaptureSession
 {
     private enum Queued { Report, SwitchHost, GoLocal }
 
+    /// <param name="mouseIntervalMs">
+    /// Read per report rather than captured, so the UI can retune pacing without restarting.
+    /// </param>
     /// <param name="stopEndsSession">
     /// Console mode ends on Ctrl+Alt+Q. Background mode has no console to return to, so the
     /// same hotkey drops to the local target instead and capture keeps running.
@@ -19,7 +22,7 @@ public static class CaptureSession
         BleHidPeripheral peripheral,
         Action<string> log,
         bool verbose,
-        int mouseIntervalMs,
+        Func<int> mouseIntervalMs,
         bool stopEndsSession,
         CancellationToken cancellationToken)
     {
@@ -42,7 +45,7 @@ public static class CaptureSession
         // top of that: measured, 2 hosts needed 40 ms rather than 20 ms.
         int PointerIntervalMs()
         {
-            var hostIntervalMs = peripheral.MouseReportIntervalMs(mouseIntervalMs);
+            var hostIntervalMs = peripheral.MouseReportIntervalMs(mouseIntervalMs());
             var links = Math.Max(1, peripheral.SubscribedMouseClients);
             var broadcasting = peripheral.SelectedHostId is null && !peripheral.IsLocalTarget;
             return broadcasting ? hostIntervalMs * 2 * links : hostIntervalMs;

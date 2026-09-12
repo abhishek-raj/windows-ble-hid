@@ -114,7 +114,7 @@ while (true)
                                                  .FirstOrDefault(v => v > 0);
                 if (mouseIntervalMs <= 0) mouseIntervalMs = 10;
 
-                await CaptureSession.RunAsync(peripheral, Console.WriteLine, verbose, mouseIntervalMs,
+                await CaptureSession.RunAsync(peripheral, Console.WriteLine, verbose, () => mouseIntervalMs,
                     stopEndsSession: true, CancellationToken.None);
                 break;
             }

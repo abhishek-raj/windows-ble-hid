@@ -67,7 +67,7 @@ internal static class BackgroundMode
 
         try
         {
-            await CaptureSession.RunAsync(peripheral, Log, verbose: false, mouseIntervalMs: 10,
+            await CaptureSession.RunAsync(peripheral, Log, verbose: false, mouseIntervalMs: () => 10,
                 stopEndsSession: false, cancellation.Token);
         }
         catch (Exception ex)
