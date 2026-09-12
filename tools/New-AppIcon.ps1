@@ -85,32 +85,33 @@ function New-TileBitmap {
         # shows through them instead of needing a second opaque colour.
         $keyboard = New-Object System.Drawing.Drawing2D.GraphicsPath
         $keyboard.FillMode = [System.Drawing.Drawing2D.FillMode]::Alternate
-        Add-RoundedRect $keyboard (0.13 * $s) (0.56 * $s) (0.50 * $s) (0.28 * $s) (0.045 * $s) (0.045 * $s)
+        Add-RoundedRect $keyboard (0.12 * $s) (0.56 * $s) (0.48 * $s) (0.28 * $s) (0.045 * $s) (0.045 * $s)
         if ($keycaps) {
             foreach ($row in 0, 1) {
                 foreach ($col in 0, 1, 2, 3) {
                     Add-RoundedRect $keyboard `
-                        ((0.175 + $col * 0.109) * $s) ((0.605 + $row * 0.07) * $s) `
-                        (0.082 * $s) (0.05 * $s) (0.012 * $s) (0.012 * $s)
+                        ((0.165 + $col * 0.104) * $s) ((0.605 + $row * 0.07) * $s) `
+                        (0.078 * $s) (0.05 * $s) (0.012 * $s) (0.012 * $s)
                 }
             }
-            Add-RoundedRect $keyboard (0.225 * $s) (0.745 * $s) (0.31 * $s) (0.05 * $s) (0.012 * $s) (0.012 * $s)
+            Add-RoundedRect $keyboard (0.215 * $s) (0.745 * $s) (0.29 * $s) (0.05 * $s) (0.012 * $s) (0.012 * $s)
         }
         elseif ($rows) {
             # Individual keycaps are gone; two bands still say "keyboard" rather than "white bar".
             foreach ($y in 0.62, 0.72) {
-                Add-RoundedRect $keyboard (0.175 * $s) ($y * $s) (0.41 * $s) (0.06 * $s) (0.02 * $s) (0.02 * $s)
+                Add-RoundedRect $keyboard (0.165 * $s) ($y * $s) (0.39 * $s) (0.06 * $s) (0.02 * $s) (0.02 * $s)
             }
         }
         $g.FillPath($white, $keyboard)
         $keyboard.Dispose()
 
-        # Mouse, sitting to the right of the keyboard at the same baseline.
+        # Mouse, sitting to the right of the keyboard at the same baseline. It is close to an
+        # oval on purpose: a narrower capsule with a centred slot reads as a padlock.
         $mouse = New-Object System.Drawing.Drawing2D.GraphicsPath
         $mouse.FillMode = [System.Drawing.Drawing2D.FillMode]::Alternate
-        Add-RoundedRect $mouse (0.71 * $s) (0.55 * $s) (0.16 * $s) (0.30 * $s) (0.08 * $s) (0.055 * $s)
+        Add-RoundedRect $mouse (0.68 * $s) (0.56 * $s) (0.18 * $s) (0.28 * $s) (0.09 * $s) (0.075 * $s)
         if ($keycaps) {
-            Add-RoundedRect $mouse (0.7725 * $s) (0.60 * $s) (0.035 * $s) (0.08 * $s) (0.0175 * $s) (0.0175 * $s)
+            Add-RoundedRect $mouse (0.756 * $s) (0.605 * $s) (0.028 * $s) (0.05 * $s) (0.014 * $s) (0.014 * $s)
         }
         $g.FillPath($white, $mouse)
         $mouse.Dispose()
