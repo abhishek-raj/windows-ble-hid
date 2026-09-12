@@ -19,7 +19,14 @@
 
     <ui:TitleBar Grid.Row="0" Title="BLE HID">
       <ui:TitleBar.Icon>
-        <ui:SymbolIcon Symbol="Bluetooth24" />
+        <ui:ImageIcon>
+          <ui:ImageIcon.Source>
+            <!-- DecodePixelWidth picks the 32px frame; without it the decoder's choice of frame
+                 is left to chance. -->
+            <BitmapImage UriSource="pack://application:,,,/Assets/blehid.ico"
+                         DecodePixelWidth="32" DecodePixelHeight="32" />
+          </ui:ImageIcon.Source>
+        </ui:ImageIcon>
       </ui:TitleBar.Icon>
     </ui:TitleBar>
 

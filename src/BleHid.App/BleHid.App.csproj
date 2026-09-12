@@ -12,6 +12,9 @@
     <RootNamespace>BleHid.App</RootNamespace>
     <AssemblyName>BleHid.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Sets the exe, taskbar and Alt+Tab icon. The tray icon is deliberately not this one:
+         it stays a monochrome glyph so it can follow the system theme. -->
+    <ApplicationIcon>Assets\blehid.ico</ApplicationIcon>
     <!-- WFAC010 asks for the WinForms DPI property instead, but the manifest has to declare it:
          the capture hook reports physical pixels and must not be virtualised. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
@@ -19,6 +22,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BleHid.Core\BleHid.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Also a resource, so the title bar and tray can pick a size-appropriate frame at runtime. -->
+  <ItemGroup>
+    <Resource Include="Assets\blehid.ico" />
   </ItemGroup>
 
   <!-- WinForms is here only for the tray icon; its implicit usings collide with WPF on

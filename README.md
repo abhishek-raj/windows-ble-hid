@@ -1,3 +1,5 @@
+<img src="src/BleHid.App/Assets/blehid.png" alt="BleHid icon" width="104" align="right">
+
 # BleHid
 
 Turn a Windows PC into a Bluetooth Low Energy keyboard and mouse, so it can drive other
