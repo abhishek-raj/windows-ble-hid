@@ -136,6 +136,25 @@ choosing a setup.
 
 ---
 
+## Languages
+
+BleHid is available in English, German (Deutsch) and Simplified Chinese (简体中文).
+
+- **Desktop app:** follows the Windows display language. Choose another in **Settings →
+  Language**; it applies the next time BleHid starts.
+- **Command line:** follows the Windows display language, or use `--lang de` or the
+  `BLEHID_LANG` environment variable. Command names stay in English.
+- **Android companion:** follows the phone's language.
+
+Logs and diagnostic reports stay in English, so maintainers can read them in bug reports.
+
+**Help translate:** no Git or coding is needed. Copy the English text, translate it, and
+paste it into a [translation issue](https://github.com/abhishek-raj/windows-ble-hid/issues/new?template=translation.yml).
+A bot checks it, and once approved, your translation is added with you credited as a
+co-author. See [TRANSLATING.md](TRANSLATING.md).
+
+---
+
 ## Android companion (experimental)
 
 The source-only Android companion in [android/BleHid.Companion](android/BleHid.Companion)

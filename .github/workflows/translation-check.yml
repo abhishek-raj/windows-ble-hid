@@ -1,0 +1,50 @@
+name: translation-check
+
+# Replies to translation issues with what passed and what needs fixing. The issue body is
+# untrusted: it is read only by tools/BleHid.Translations from the event file, never by the shell.
+on:
+  issues:
+    types: [opened, edited, reopened, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: translation-check-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: >
+      github.event.issue.state == 'open'
+      && contains(github.event.issue.labels.*.name, 'translation')
+      && (github.event.action != 'labeled' || github.event.label.name == 'translation')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Validate the submission
+        run: >
+          dotnet run --project tools/BleHid.Translations -c Release --
+          issue validate --event "$GITHUB_EVENT_PATH" --comment "$RUNNER_TEMP/comment.md"
+
+      # One comment per issue, updated in place, so edits do not pile up replies.
+      - name: Post or update the check comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- blehid-translation-check -->"))) | .id' \
+            | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi

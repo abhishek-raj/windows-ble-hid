@@ -29,6 +29,15 @@ public sealed class AppSettings : INotifyPropertyChanged
         set { if (Set(ref _startPeripheralOnLaunch, value)) Save(); }
     }
 
+    // Empty follows the Windows display language. Read once at startup, so a change applies on
+    // the next launch rather than restarting the peripheral underneath connected hosts.
+    private string _language = string.Empty;
+    public string Language
+    {
+        get => _language;
+        set { if (Set(ref _language, value ?? string.Empty)) Save(); }
+    }
+
     private static AppSettings Load()
     {
         try

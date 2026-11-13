@@ -1,6 +1,9 @@
 using System.Threading.Channels;
 using BleHid.Cli;
 using BleHid.Core;
+using BleHid.Localization;
+
+ConsoleText.Initialize(args);
 
 var requireEncryption = !args.Contains("--plain", StringComparer.OrdinalIgnoreCase);
 
@@ -22,14 +25,14 @@ _ = Task.Run(async () =>
     await foreach (var work in sendQueue.Reader.ReadAllAsync())
     {
         try { await work(); }
-        catch (Exception ex) { Console.WriteLine($"  send error: {ex.Message}"); }
+        catch (Exception ex) { Console.WriteLine("  " + Loc.T("cli.sendError", ("message", ex.Message))); }
     }
 });
 
 var appearance = new AppearanceAdvertiser();
 appearance.Log += message => Console.WriteLine(message);
 
-Console.WriteLine("Starting BLE HID peripheral...\n");
+Console.WriteLine(Loc.T("cli.starting") + "\n");
 
 try
 {
@@ -37,46 +40,55 @@ try
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"\nStartup failed: {ex.Message}");
+    Console.WriteLine("\n" + Loc.T("cli.startupFailed", ("message", ex.Message)));
     return 1;
 }
 
-Console.WriteLine($"""
+Console.WriteLine();
+Console.WriteLine(Loc.T("cli.ready.status", ("status", DisplayText.Advertisement(peripheral.AdvertisementStatus))));
+Console.WriteLine(Loc.T("cli.ready.pair"));
+Console.WriteLine();
+foreach (var (command, key) in new[]
+{
+    ("type <text>", "cli.help.type"),
+    ("key <name>", "cli.help.key"),
+    ("move <dx> <dy>", "cli.help.move"),
+    ("click <l|r|m>", "cli.help.click"),
+    ("scroll <n>", "cli.help.scroll"),
+    ("capture", "cli.help.capture"),
+    ("capture verbose", "cli.help.captureVerbose"),
+    ("capture <ms>", "cli.help.captureInterval"),
+    ("host", "cli.help.host"),
+    ("host <n|next|local|all>", "cli.help.hostSelect"),
+    ("gesture", "cli.help.gesture"),
+    ("gesture <on|off>", "cli.help.gestureToggle"),
+    ("status", "cli.help.status"),
+    ("peers", "cli.help.peers"),
+    ("appearance", "cli.help.appearance"),
+    ("burst <n>", "cli.help.burst"),
+    ("watch <secs>", "cli.help.watch"),
+    ("probe <uuid16>", "cli.help.probe"),
+    ("l2cap", "cli.help.l2cap"),
+    ("classic <on|off>", "cli.help.classic"),
+    ("quit", "cli.help.quit")
+})
+    Console.WriteLine(ConsoleText.Help(command, key, width: 25));
 
-    Advertisement status: {peripheral.AdvertisementStatus}
-    Pair from your phone's Bluetooth settings, then use the commands below.
-
-      type <text>          send keystrokes
-      key <name>           press a named key (enter, esc, up, f5, ...)
-      move <dx> <dy>       move the pointer
-      click <l|r|m>        click a mouse button
-      scroll <n>           scroll wheel
-      capture              redirect local keyboard+mouse (Ctrl+Alt+Q stops)
-      capture verbose      same, with per-report timing diagnostics
-      capture <ms>         same, with a custom pointer report interval
-      host                 list subscribed hosts and the current target
-      host <n|next|local|all>  choose the target; local keeps input on this PC
-      gesture              show whether shake-to-switch is on
-      gesture <on|off>     shake the pointer to switch target; applies to a running session
-      status               show subscriber counts
-      peers                list connected Bluetooth peers
-      appearance           advertise GAP appearance = keyboard (no effect on this stack)
-      burst <n>            time <n> raw mouse notifies (link diagnostic)
-      watch <secs>         log connection/subscription changes as they happen
-      probe <uuid16>       try to create a GATT service, e.g. probe 1801
-      l2cap                test if user mode can listen on Classic HID L2CAP PSMs
-      classic <on|off>     toggle BR/EDR connectable (fails with E_INVALIDARG on this stack)
-      quit                 exit
-
-    While capturing:
-      Ctrl+Alt+CapsLock     switch target (Ctrl+D+C also works)
-
-    Background mode (keeps hosts bonded across restarts):
-      --background         run detached, no console; same capture shortcuts
-      --stop               stop the background instance
-      --install-autostart  run at login   --remove-autostart  undo
-
-    """);
+Console.WriteLine();
+Console.WriteLine(Loc.T("cli.help.whileCapturing"));
+Console.WriteLine(ConsoleText.Help(Shortcuts.SwitchTarget, "cli.help.switchTarget", width: 25));
+Console.WriteLine();
+Console.WriteLine(Loc.T("cli.help.backgroundTitle"));
+foreach (var (option, key) in new[]
+{
+    ("--background", "cli.help.background"),
+    ("--stop", "cli.help.stop"),
+    ("--install-autostart", "cli.help.installAutostart"),
+    ("--remove-autostart", "cli.help.removeAutostart"),
+    ("--lang <code>", "cli.help.lang")
+})
+    Console.WriteLine(ConsoleText.Help(option, key, width: 25));
+Console.WriteLine();
 
 while (true)
 {
@@ -107,7 +119,7 @@ while (true)
             {
                 if (peripheral.SubscribedKeyboardClients == 0)
                 {
-                    Console.WriteLine("  no subscriber yet - connect a host first");
+                    Console.WriteLine("  " + Loc.T("cli.noSubscriber"));
                     break;
                 }
 
@@ -156,7 +168,7 @@ while (true)
             {
                 if (!ushort.TryParse(argument.Trim(), System.Globalization.NumberStyles.HexNumber, null, out var uuid16))
                 {
-                    Console.WriteLine("  usage: probe <4-digit hex uuid>, e.g. probe 1801");
+                    Console.WriteLine("  " + Loc.T("cli.usage.probe"));
                     break;
                 }
                 var (service, characteristic) = await ServiceProbe.TryCreateAsync(uuid16);
@@ -209,30 +221,36 @@ while (true)
                 var trimmed = argument.Trim();
 
                 if (trimmed.Equals("next", StringComparison.OrdinalIgnoreCase))
-                    Console.WriteLine($"  -> {peripheral.SelectNextHost()}");
+                {
+                    peripheral.SelectNextHost();
+                    Console.WriteLine($"  -> {DisplayText.Target(peripheral)}");
+                }
                 else if (trimmed.Equals("local", StringComparison.OrdinalIgnoreCase))
-                    Console.WriteLine($"  -> {peripheral.SelectLocal()}");
+                {
+                    peripheral.SelectLocal();
+                    Console.WriteLine($"  -> {DisplayText.Target(peripheral)}");
+                }
                 else if (trimmed.Equals("all", StringComparison.OrdinalIgnoreCase))
                 {
                     peripheral.SelectAllHosts();
-                    Console.WriteLine("  -> all hosts");
+                    Console.WriteLine($"  -> {DisplayText.Target(peripheral)}");
                 }
                 else if (int.TryParse(trimmed, out var index) && !peripheral.SelectHost(index - 1))
-                    Console.WriteLine("  no host with that number");
+                    Console.WriteLine("  " + Loc.T("cli.host.notFound"));
 
                 var hosts = peripheral.Hosts();
-                Console.WriteLine($"  sending to: {peripheral.SelectedHostDisplay}");
+                Console.WriteLine("  " + Loc.T("cli.host.sendingTo", ("target", DisplayText.Target(peripheral))));
                 for (var i = 0; i < hosts.Count; i++)
                 {
                     var marker = hosts[i].DeviceId == peripheral.SelectedHostId ? "*" : " ";
-                    var locks = BleHidPeripheral.DescribeLockKeys(
-                        peripheral.LockKeysFor(hosts[i].DeviceId), peripheral.NumpadUsed(hosts[i].DeviceId));
+                    var locks = DisplayText.LockAlert(BleHidPeripheral.LockAlertFor(
+                        peripheral.LockKeysFor(hosts[i].DeviceId), peripheral.NumpadUsed(hosts[i].DeviceId)));
                     var note = locks is null
                         ? string.Empty
-                        : peripheral.LockKeysMeasured(hosts[i].DeviceId) ? $"   {locks}" : $"   {locks} (inferred)";
+                        : "   " + (peripheral.LockKeysMeasured(hosts[i].DeviceId) ? locks : Loc.T("cli.host.inferred", ("locks", locks)));
                     Console.WriteLine($"  {marker} {i + 1}. {hosts[i].Display}{note}");
                 }
-                if (hosts.Count == 0) Console.WriteLine("    (no subscribed hosts)");
+                if (hosts.Count == 0) Console.WriteLine("    " + Loc.T("cli.host.none"));
                 break;
             }
 
@@ -247,40 +265,45 @@ while (true)
                     var updated = current.WithEnabled(trimmed == "on");
                     if (!updated.TrySave(AppPaths.SwitchGestureConfig, out var error))
                     {
-                        Console.WriteLine($"  could not save: {error}");
+                        Console.WriteLine("  " + Loc.T("cli.gesture.saveFailed", ("error", error)));
                         break;
                     }
                     current = updated;
                 }
                 else if (trimmed.Length > 0)
                 {
-                    Console.WriteLine("  usage: gesture <on|off>");
+                    Console.WriteLine("  " + Loc.T("cli.usage.gesture"));
                     break;
                 }
 
-                Console.WriteLine($"  shake to switch: {(current.Enabled ? "on" : "off")}");
-                Console.WriteLine($"  {current.RequiredReversals} reversals of {current.MinStrokePx}px within {current.WindowMs}ms");
+                Console.WriteLine("  " + Loc.T("cli.gesture.state", ("state", Loc.T(current.Enabled ? "common.on" : "common.off"))));
+                Console.WriteLine("  " + Loc.T("cli.gesture.tuning", ("reversals", current.RequiredReversals), ("pixels", current.MinStrokePx), ("milliseconds", current.WindowMs)));
                 if (current.Warning is { } warning) Console.WriteLine($"  {warning}");
                 break;
             }
 
             case "status":
             {
-                Console.WriteLine($"  advertisement : {peripheral.AdvertisementStatus}");
-                Console.WriteLine($"  appearance adv: {appearance.Status}");
-                Console.WriteLine($"  keyboard subs : {peripheral.SubscribedKeyboardClients}");
-                Console.WriteLine($"  mouse subs    : {peripheral.SubscribedMouseClients}");
-                Console.WriteLine($"  sending to    : {peripheral.SelectedHostDisplay}");
                 var lockKeys = peripheral.TargetLockKeys;
-                var lockSource = peripheral.TargetLockKeysMeasured ? "measured" : "inferred";
-                Console.WriteLine($"  caps lock     : {(lockKeys.HasFlag(LockKeys.CapsLock) ? "ON" : "off")} ({lockSource})");
-                Console.WriteLine($"  num lock      : {(lockKeys.HasFlag(LockKeys.NumLock) ? "on" : "OFF")} ({lockSource})");
+                var lockSource = Loc.T(peripheral.TargetLockKeysMeasured ? "cli.status.measured" : "cli.status.inferred");
+                // Upper case marks the state that catches people out on a host they cannot see.
+                var caps = Loc.T(lockKeys.HasFlag(LockKeys.CapsLock) ? "cli.status.onAlert" : "common.off");
+                var num = Loc.T(lockKeys.HasFlag(LockKeys.NumLock) ? "common.on" : "cli.status.offAlert");
+                foreach (var row in ConsoleText.Rows(
+                             (Loc.T("cli.status.advertisement"), DisplayText.Advertisement(peripheral.AdvertisementStatus)),
+                             (Loc.T("cli.status.appearance"), appearance.Status.ToString()),
+                             (Loc.T("cli.status.keyboardSubscribers"), peripheral.SubscribedKeyboardClients.ToString()),
+                             (Loc.T("cli.status.mouseSubscribers"), peripheral.SubscribedMouseClients.ToString()),
+                             (Loc.T("cli.status.sendingTo"), DisplayText.Target(peripheral)),
+                             (Loc.T("cli.status.capsLock"), $"{caps} ({lockSource})"),
+                             (Loc.T("cli.status.numLock"), $"{num} ({lockSource})")))
+                    Console.WriteLine(row);
 
                 // BR/EDR links are usually incidental (CDP/Phone Link, audio) and unrelated to HID.
                 var brEdrPeers = await BluetoothDiagnostics.ListConnectedClassicDevicesAsync();
                 if (brEdrPeers.Count > 0)
                 {
-                    Console.WriteLine($"  BR/EDR peers ({brEdrPeers.Count}) - only a problem if a host is missing from subs:");
+                    Console.WriteLine("  " + Loc.T("cli.status.brEdrPeers", ("count", brEdrPeers.Count)));
                     foreach (var peer in brEdrPeers) Console.WriteLine($"    {peer}");
                 }
                 break;
@@ -305,14 +328,14 @@ while (true)
                     await peripheral.SendKeyboardAsync(KeyModifiers.None, usage);
                     await peripheral.ReleaseKeysAsync();
                 }
-                else Console.WriteLine($"  unknown key '{argument}'");
+                else Console.WriteLine("  " + Loc.T("cli.unknownKey", ("key", argument)));
                 break;
 
             case "move":
                 var deltas = argument.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (deltas.Length == 2 && int.TryParse(deltas[0], out var dx) && int.TryParse(deltas[1], out var dy))
                     await peripheral.SendMouseAsync(MouseButtons.None, dx, dy, 0);
-                else Console.WriteLine("  usage: move <dx> <dy>");
+                else Console.WriteLine("  " + Loc.T("cli.usage.move"));
                 break;
 
             case "click":
@@ -329,17 +352,17 @@ while (true)
             case "scroll":
                 if (int.TryParse(argument.Trim(), out var wheel))
                     await peripheral.SendMouseAsync(MouseButtons.None, 0, 0, wheel);
-                else Console.WriteLine("  usage: scroll <n>");
+                else Console.WriteLine("  " + Loc.T("cli.usage.scroll"));
                 break;
 
             default:
-                Console.WriteLine($"  unknown command '{command}'");
+                Console.WriteLine("  " + Loc.T("cli.unknownCommand", ("command", command)));
                 break;
         }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"  error: {ex.Message}");
+        Console.WriteLine("  " + Loc.T("cli.error", ("message", ex.Message)));
     }
 }
 
@@ -353,7 +376,7 @@ static async Task TypeTextAsync(BleHidPeripheral peripheral, string text)
     {
         if (!HidReports.TryMapChar(character, out var usage, out var modifiers))
         {
-            Console.WriteLine($"  skipped unmappable character '{character}'");
+            Console.WriteLine("  " + Loc.T("cli.type.skipped", ("character", character)));
             continue;
         }
 

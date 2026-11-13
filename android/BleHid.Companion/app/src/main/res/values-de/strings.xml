@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from localization/de.json by tools/BleHid.Translations. Do not edit; see TRANSLATING.md. -->
+<resources>
+    <string name="monitor_notification_channel">BleHid-Verbindung</string>
+    <string name="monitor_notification_title">BleHid wird überwacht</string>
+    <string name="monitor_notification_text">Eine Bluetooth-Diagnoseverbindung wird aufrechterhalten</string>
+    <string name="stop_monitoring">Stoppen</string>
+    <string name="share_diagnostics">Diagnose teilen</string>
+    <string name="events_empty">Verbindungsereignisse werden hier angezeigt.</string>
+    <string name="no_computer">Kein Computer zugeordnet</string>
+    <string name="allow_nearby_devices">Geräte in der Nähe zulassen</string>
+    <string name="find_computer">Computer suchen</string>
+    <string name="change_computer">Computer wechseln</string>
+    <string name="connection_monitor">Verbindungsüberwachung</string>
+    <string name="monitor_waiting">Warten auf den zugeordneten Computer</string>
+    <string name="monitor_off">Aus</string>
+    <string name="monitor_connecting">Diagnose-GATT-Verbindung wird geöffnet</string>
+    <string name="monitor_discovering">Dienstdatenbank des Computers wird gelesen</string>
+    <string name="monitor_ready">Verbunden, Datenbankänderungen werden überwacht</string>
+    <string name="monitor_retrying">Nächster Versuch in %1$s s</string>
+    <string name="monitor_failed">Verbindung fehlgeschlagen</string>
+    <string name="state_idle">INAKTIV</string>
+    <string name="state_connecting">VERBINDET</string>
+    <string name="state_discovering">ERMITTELT</string>
+    <string name="state_ready">BEREIT</string>
+    <string name="state_retrying">WIEDERHOLT</string>
+    <string name="state_failed">FEHLER</string>
+    <string name="section_database">GATT-DATENBANK</string>
+    <string name="metric_reports">Berichte</string>
+    <string name="metric_services">Dienste</string>
+    <string name="metric_changed">Geändert</string>
+    <string name="metric_presence">Präsenz</string>
+    <string name="value_present">Vorhanden</string>
+    <string name="value_unknown">Unbekannt</string>
+    <string name="hash_saved">Gespeichert</string>
+    <string name="hash_same">Gleich</string>
+    <string name="hash_changed">Geändert</string>
+    <string name="presence_nearby">In der Nähe</string>
+    <string name="presence_away">Entfernt</string>
+    <string name="section_recovery">WIEDERHERSTELLUNG</string>
+    <string name="retry_gatt">GATT erneut versuchen</string>
+    <string name="connect_input">Eingabe verbinden</string>
+    <string name="bluetooth_settings">Bluetooth-Einstellungen</string>
+    <string name="settings_required">Unter Android %1$s lässt sich das Eingabeprofil nur über die Systemeinstellungen wieder verbinden.</string>
+    <string name="open_bluetooth_settings">Bluetooth-Einstellungen öffnen</string>
+    <string name="section_events">EREIGNISSE</string>
+</resources>

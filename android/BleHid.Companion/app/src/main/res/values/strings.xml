@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from localization/en.json by tools/BleHid.Translations. Do not edit; see TRANSLATING.md. -->
 <resources>
     <string name="app_name">BleHid Companion</string>
     <string name="monitor_notification_channel">BleHid connection</string>
@@ -6,4 +7,43 @@
     <string name="monitor_notification_text">Keeping a diagnostic Bluetooth connection active</string>
     <string name="stop_monitoring">Stop</string>
     <string name="share_diagnostics">Share diagnostics</string>
+    <string name="events_empty">Connection events will appear here.</string>
+    <string name="no_computer">No computer associated</string>
+    <string name="allow_nearby_devices">Allow nearby devices</string>
+    <string name="find_computer">Find computer</string>
+    <string name="change_computer">Change computer</string>
+    <string name="connection_monitor">Connection monitor</string>
+    <string name="monitor_waiting">Waiting for the associated computer</string>
+    <string name="monitor_off">Off</string>
+    <string name="monitor_connecting">Opening a diagnostic GATT connection</string>
+    <string name="monitor_discovering">Reading the remote service database</string>
+    <string name="monitor_ready">Connected and watching database changes</string>
+    <string name="monitor_retrying">Next attempt in %1$s s</string>
+    <string name="monitor_failed">Connection failed</string>
+    <string name="state_idle">IDLE</string>
+    <string name="state_connecting">CONNECTING</string>
+    <string name="state_discovering">DISCOVERING</string>
+    <string name="state_ready">READY</string>
+    <string name="state_retrying">RETRYING</string>
+    <string name="state_failed">FAILED</string>
+    <string name="section_database">GATT DATABASE</string>
+    <string name="metric_reports">Reports</string>
+    <string name="metric_hash">Hash</string>
+    <string name="metric_services">Services</string>
+    <string name="metric_changed">Changed</string>
+    <string name="metric_presence">Presence</string>
+    <string name="value_present">Present</string>
+    <string name="value_unknown">Unknown</string>
+    <string name="hash_saved">Saved</string>
+    <string name="hash_same">Same</string>
+    <string name="hash_changed">Changed</string>
+    <string name="presence_nearby">Nearby</string>
+    <string name="presence_away">Away</string>
+    <string name="section_recovery">RECOVERY</string>
+    <string name="retry_gatt">Retry GATT</string>
+    <string name="connect_input">Connect input</string>
+    <string name="bluetooth_settings">Bluetooth settings</string>
+    <string name="settings_required">Android %1$s requires system settings to reconnect the input profile.</string>
+    <string name="open_bluetooth_settings">Open Bluetooth settings</string>
+    <string name="section_events">EVENTS</string>
 </resources>

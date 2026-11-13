@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using BleHid.Core;
+using BleHid.Localization;
 using Microsoft.Win32;
 
 namespace BleHid.Cli;
@@ -21,7 +22,7 @@ internal static class BackgroundMode
         using var instance = new Mutex(true, MutexName, out var isOnlyInstance);
         if (!isOnlyInstance)
         {
-            Console.Error.WriteLine("BleHid is already running in the background.");
+            Console.Error.WriteLine(Loc.T("cli.background.alreadyRunning"));
             return 1;
         }
 
@@ -87,12 +88,12 @@ internal static class BackgroundMode
         {
             using var stopEvent = EventWaitHandle.OpenExisting(StopEventName);
             stopEvent.Set();
-            Console.WriteLine("Stop signalled.");
+            Console.WriteLine(Loc.T("cli.background.stopSignalled"));
             return 0;
         }
         catch (WaitHandleCannotBeOpenedException)
         {
-            Console.WriteLine("No background instance is running.");
+            Console.WriteLine(Loc.T("cli.background.notRunning"));
             return 1;
         }
     }
@@ -102,26 +103,26 @@ internal static class BackgroundMode
         using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
         if (key is null)
         {
-            Console.WriteLine("Could not open the Run key.");
+            Console.WriteLine(Loc.T("cli.autostart.noRunKey"));
             return 1;
         }
 
         if (!install)
         {
             key.DeleteValue(RunValue, throwOnMissingValue: false);
-            Console.WriteLine("Auto-start removed.");
+            Console.WriteLine(Loc.T("cli.autostart.removed"));
             return 0;
         }
 
         var exe = Environment.ProcessPath;
         if (exe is null || exe.EndsWith("dotnet.exe", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine("Run this from the published executable, not via 'dotnet run'.");
+            Console.WriteLine(Loc.T("cli.autostart.devBuild"));
             return 1;
         }
 
         key.SetValue(RunValue, $"\"{exe}\" --background");
-        Console.WriteLine($"Auto-start installed: \"{exe}\" --background");
+        Console.WriteLine(Loc.T("cli.autostart.installed", ("command", $"\"{exe}\" --background")));
         return 0;
     }
 

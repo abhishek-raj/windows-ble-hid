@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plain net8.0 so the translation bot can use the same parser and validator on Linux runners. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- Translators edit the top-level localization folder; embedding keeps single-file publishing
+       working without satellite assemblies. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\localization\*.json"
+                      LogicalName="BleHid.Localization.Strings.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BleHid.Core.Tests" />
+  </ItemGroup>
+
+</Project>

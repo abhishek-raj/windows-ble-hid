@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using BleHid.App.Services;
 using BleHid.Core;
+using BleHid.Localization;
 
 namespace BleHid.App.Views;
 
@@ -21,6 +22,15 @@ public partial class SettingsPage : Page
 
         SwitchGestureToggle.IsChecked =
             SwitchGestureOptions.Load(AppPaths.SwitchGestureConfig).Enabled;
+
+        // Native names, so someone who cannot read the current language can still find their own.
+        var languages = new List<LanguageChoice> { new(string.Empty, Loc.T("app.settings.language.system")) };
+        languages.AddRange(Loc.AvailableLanguages.Select(code => new LanguageChoice(code, Loc.NativeName(code))));
+        LanguageBox.ItemsSource = languages;
+        LanguageBox.SelectedValue = languages.Any(choice => choice.Code == AppSettings.Instance.Language)
+            ? AppSettings.Instance.Language
+            : string.Empty;
+
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -67,5 +77,16 @@ public partial class SettingsPage : Page
         SwitchGestureToggle.IsChecked = !enabled;
     }
 
+    private void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (LanguageBox.SelectedValue is string code) AppSettings.Instance.Language = code;
+    }
+
     private void OnExit(object sender, RoutedEventArgs e) => App.Current.ExitApplication();
+
+    // ToString is what screen readers announce for a ComboBox item, so it must be the visible name.
+    private sealed record LanguageChoice(string Code, string Name)
+    {
+        public override string ToString() => Name;
+    }
 }

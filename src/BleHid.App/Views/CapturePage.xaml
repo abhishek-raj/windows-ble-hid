@@ -3,8 +3,10 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
       xmlns:conv="clr-namespace:BleHid.App.Converters"
+      xmlns:l="clr-namespace:BleHid.App.Localization"
+      xmlns:core="clr-namespace:BleHid.Core;assembly=BleHid.Core"
       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-      Title="Capture">
+      Title="{l:Tr app.nav.capture}">
 
   <Page.Resources>
     <conv:InverseBoolConverter x:Key="InverseBool" />
@@ -13,27 +15,27 @@
 
   <StackPanel Margin="24,0,24,24">
 
-      <ui:TextBlock Text="Capture" FontTypography="TitleLarge" Margin="0,0,0,4" />
-      <ui:TextBlock Text="Redirect this PC's keyboard and mouse to a paired host."
+      <ui:TextBlock Text="{l:Tr app.nav.capture}" FontTypography="TitleLarge" Margin="0,0,0,4" />
+      <ui:TextBlock Text="{l:Tr app.capture.description}"
                     FontTypography="Body" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                     TextWrapping="Wrap" Margin="0,0,0,20" />
 
       <ui:InfoBar Severity="Warning" IsClosable="False" Margin="0,0,0,16"
-                  Title="Capture takes over this PC"
-                  Message="While input is going to a host, this window stops receiving it. Press Ctrl+Alt+Q to stop capture, or Ctrl+Alt+CapsLock to switch to the next target."
+                  Title="{l:Tr app.capture.redirecting.title}"
+                  Message="{l:Tr app.capture.redirecting.message}"
                   IsOpen="{Binding IsRedirecting}" />
 
       <ui:InfoBar x:Name="NoHostsBar" Severity="Informational" IsClosable="False" Margin="0,0,0,16"
-                  Title="No hosts yet"
-                  Message="Pair from the device you want to control, then wait for it to subscribe. On a Windows host, pick the entry shown as an input device rather than the audio one." />
+                  Title="{l:Tr app.capture.noHosts.title}"
+                  Message="{l:Tr app.capture.noHosts.message}" />
 
       <ui:CardControl Icon="{ui:SymbolIcon Keyboard24}" Margin="0,0,0,16">
         <ui:CardControl.Header>
           <StackPanel>
-            <ui:TextBlock Text="Capture keyboard and mouse" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="{l:Tr app.capture.toggle}" FontTypography="BodyStrong" />
             <ui:TextBlock FontTypography="Caption" TextWrapping="Wrap"
                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="{Binding Target, StringFormat='Sending to: {0}'}" />
+                          Text="{Binding Target, Converter={l:Format app.capture.sendingTo}}" />
           </StackPanel>
         </ui:CardControl.Header>
         <ui:ToggleSwitch x:Name="CaptureToggle"
@@ -43,11 +45,11 @@
       </ui:CardControl>
 
       <ui:InfoBar Severity="Warning" IsClosable="False" Margin="0,0,0,16"
-                  Title="Lock keys on the target host"
+                  Title="{l:Tr app.capture.lockWarning}"
                   Message="{Binding TargetLockWarning, Mode=OneWay}"
                   IsOpen="{Binding HasTargetLockWarning, Mode=OneWay}" />
 
-      <ui:TextBlock Text="Send input to" FontTypography="Subtitle" Margin="0,0,0,8" />
+      <ui:TextBlock Text="{l:Tr app.capture.sendInputTo}" FontTypography="Subtitle" Margin="0,0,0,8" />
 
       <ItemsControl ItemsSource="{Binding Targets}">
         <ItemsControl.ItemTemplate>
@@ -68,15 +70,15 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
 
-      <ui:TextBlock Text="Pointer" FontTypography="Subtitle" Margin="0,20,0,8" />
+      <ui:TextBlock Text="{l:Tr app.capture.pointer}" FontTypography="Subtitle" Margin="0,20,0,8" />
 
       <ui:CardControl Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
           <StackPanel>
-            <ui:TextBlock Text="Minimum pointer interval" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="{l:Tr app.capture.pointerInterval.title}" FontTypography="BodyStrong" />
             <ui:TextBlock FontTypography="Caption" TextWrapping="Wrap"
                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="{Binding LinkIntervalMs, StringFormat='Paced to {0} ms right now — whichever is slower of this minimum and the connection interval the host negotiated.'}" />
+                          Text="{Binding LinkIntervalMs, Converter={l:Format app.capture.pointerInterval.description}}" />
           </StackPanel>
         </ui:CardControl.Header>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -84,20 +86,20 @@
                   VerticalAlignment="Center"
                   Value="{Binding PointerIntervalMs, Mode=TwoWay}" />
           <ui:TextBlock Width="52" Margin="12,0,0,0" VerticalAlignment="Center"
-                        Text="{Binding PointerIntervalMs, StringFormat='{}{0} ms'}" />
+                        Text="{Binding PointerIntervalMs, Converter={l:Format app.capture.milliseconds}}" />
         </StackPanel>
       </ui:CardControl>
 
-      <ui:TextBlock Text="Shortcuts" FontTypography="Subtitle" Margin="0,20,0,8" />
+      <ui:TextBlock Text="{l:Tr app.capture.shortcuts}" FontTypography="Subtitle" Margin="0,20,0,8" />
 
       <ui:CardControl Icon="{ui:SymbolIcon ArrowSwap24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
-          <ui:TextBlock Text="Switch to the next target" FontTypography="BodyStrong" />
+          <ui:TextBlock Text="{l:Tr app.capture.switchTarget}" FontTypography="BodyStrong" />
         </ui:CardControl.Header>
         <StackPanel MaxWidth="240">
-          <ui:TextBlock Text="Ctrl + Alt + CapsLock" FontFamily="Cascadia Mono, Consolas"
+          <ui:TextBlock Text="{x:Static core:Shortcuts.SwitchTargetSpaced}" FontFamily="Cascadia Mono, Consolas"
                         FontTypography="Body" TextWrapping="Wrap" />
-          <ui:TextBlock Text="or Ctrl + D + C" FontFamily="Cascadia Mono, Consolas"
+          <ui:TextBlock Text="{Binding Source={x:Static core:Shortcuts.SwitchTargetAlternativeSpaced}, Converter={l:Format app.capture.switchShortcutAlternative}}" FontFamily="Cascadia Mono, Consolas"
                         FontTypography="Body" TextWrapping="Wrap" Margin="0,4,0,0"
                         Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
         </StackPanel>
@@ -105,9 +107,9 @@
 
       <ui:CardControl Icon="{ui:SymbolIcon Dismiss24}">
         <ui:CardControl.Header>
-          <ui:TextBlock Text="Stop capture" FontTypography="BodyStrong" />
+          <ui:TextBlock Text="{l:Tr app.capture.stop}" FontTypography="BodyStrong" />
         </ui:CardControl.Header>
-        <ui:TextBlock Text="Ctrl + Alt + Q" FontFamily="Cascadia Mono, Consolas"
+        <ui:TextBlock Text="{x:Static core:Shortcuts.StopSpaced}" FontFamily="Cascadia Mono, Consolas"
                       FontTypography="Body" />
       </ui:CardControl>
 

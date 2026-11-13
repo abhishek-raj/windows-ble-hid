@@ -1,4 +1,5 @@
 using System.Windows;
+using BleHid.Localization;
 using Forms = System.Windows.Forms;
 
 namespace BleHid.App.Services;
@@ -10,15 +11,15 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly Forms.NotifyIcon _icon;
     private readonly System.Drawing.Icon _current;
-    private string _target = "nothing yet";
+    private string _target = Loc.T("target.none");
     private string? _lockWarning;
 
     public TrayIconService(Action open, Action exit)
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Open BLE HID", null, (_, _) => open());
+        menu.Items.Add(Loc.T("app.tray.open"), null, (_, _) => open());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) => exit());
+        menu.Items.Add(Loc.T("app.common.exit"), null, (_, _) => exit());
 
         _current = LoadIcon();
         _icon = new Forms.NotifyIcon
@@ -53,7 +54,7 @@ public sealed class TrayIconService : IDisposable
 
         // Only on a rising edge: re-announcing an unchanged warning on every switch would nag.
         if (lockWarning is not null && lockWarning != previous)
-            _icon.ShowBalloonTip(3000, "Lock keys", $"{target}: {lockWarning}", Forms.ToolTipIcon.Warning);
+            _icon.ShowBalloonTip(3000, Loc.T("app.tray.lockKeys"), $"{target}: {lockWarning}", Forms.ToolTipIcon.Warning);
     }
 
     // SmallIconSize is the DPI-scaled tray metric, so this selects the frame Windows is about to

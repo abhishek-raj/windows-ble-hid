@@ -1,0 +1,75 @@
+name: Translation
+description: Add a new language to BLE HID, or improve an existing one. No Git or coding needed.
+title: "[Translation] "
+labels: ["translation"]
+# The field labels are read by tools/BleHid.Translations/IssueSubmission.cs; rename them together.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping translate BLE HID! Everything happens on this page:
+
+        1. Open the English text, [`en.json`](https://github.com/abhishek-raj/windows-ble-hid/blob/main/localization/en.json), and copy all of it with the **Copy raw file** button.
+           To improve a language that already exists, copy that language's file from [`localization`](https://github.com/abhishek-raj/windows-ble-hid/tree/main/localization) instead.
+        2. Translate only the text **after** each colon. Keep everything **before** the colon unchanged.
+        3. Keep words in `{braces}` exactly as written. BleHid fills them in, for example with a device name.
+        4. Lines starting with `"@` are notes to help you. You can leave them in.
+        5. You do not have to translate everything. Anything left in English, or deleted, simply shows in English.
+        6. Paste the result below and submit. A bot checks it within a few minutes and replies here. To fix something, edit this issue; the check runs again.
+
+        More detail, including how to try your translation, is in [TRANSLATING.md](https://github.com/abhishek-raj/windows-ble-hid/blob/main/TRANSLATING.md).
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      description: Missing from the list? Choose **Other** and enter its code below.
+      options:
+        - German (de)
+        - Simplified Chinese (zh-Hans)
+        - Traditional Chinese (zh-Hant)
+        - French (fr)
+        - Spanish (es)
+        - Portuguese, Brazil (pt-BR)
+        - Portuguese, Portugal (pt-PT)
+        - Italian (it)
+        - Dutch (nl)
+        - Polish (pl)
+        - Russian (ru)
+        - Ukrainian (uk)
+        - Turkish (tr)
+        - Japanese (ja)
+        - Korean (ko)
+        - Hindi (hi)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: code
+    attributes:
+      label: Language code
+      description: Only needed for **Other**. Use a code such as `sv`, `cs` or `es-MX`.
+      placeholder: sv
+
+  - type: textarea
+    id: translations
+    attributes:
+      label: Translations
+      description: Paste the whole translated file here.
+      render: json
+      placeholder: |
+        {
+          "app.nav.settings": "Einstellungen",
+          "app.common.exit": "Beenden"
+        }
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: license
+    attributes:
+      label: License
+      options:
+        - label: I license my translation under the project's MIT License, and I am happy to be credited as a co-author.
+          required: true
