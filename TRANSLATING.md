@@ -7,6 +7,7 @@ a build environment.
 - [Translators](#translators)
 - [Maintainers](#maintainers)
 - [Developers](#developers)
+- [Credits](#credits)
 
 ## Translators
 
@@ -146,3 +147,13 @@ The Android companion follows the phone's language, or its per-app language sett
   tests, and runs on Linux in the workflows.
 - Core logs and `BleHidPeripheral.SelectedHostDisplay` stay English for bug reports;
   `DisplayText` provides the translated equivalents for the app and CLI.
+
+## Credits
+
+Translators who submit through the issue form are credited as co-authors of the commit
+that adds their work, so they appear among the project's contributors. This section
+acknowledges help that does not show up there.
+
+- **Simplified Chinese** builds on the translation by [@Vierblatt](https://github.com/Vierblatt)
+  in [their fork](https://github.com/Vierblatt/windows-ble-hid), whose wording and
+  terminology it reuses.

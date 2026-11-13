@@ -138,7 +138,9 @@ choosing a setup.
 
 ## Languages
 
-BleHid is available in English, German (Deutsch) and Simplified Chinese (简体中文).
+BleHid is available in English, German (Deutsch) and Simplified Chinese (简体中文). The
+Chinese translation builds on [@Vierblatt](https://github.com/Vierblatt)'s work; see the
+[translation credits](TRANSLATING.md#credits).
 
 - **Desktop app:** follows the Windows display language. Choose another in **Settings →
   Language**; it applies the next time BleHid starts.
