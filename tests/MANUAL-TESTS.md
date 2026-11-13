@@ -79,14 +79,24 @@ Run live capture in both the desktop app and CLI. Keep a text field focused on t
 device before typing; do not test against its Bluetooth settings screen. Scripted `type`
 still requires the receiver's US layout and is not a layout-capture test.
 
+A US keyboard is enough: keys are sent by position, so add the German layout in Windows,
+select German on the receiver, and compare local Notepad with the receiver. By US labels,
+`Y`/`Z` → `z`/`y`, `[` `;` `'` → `ü` `ö` `ä`, `-` → `ß`, `\` → `#`. ANSI keyboards have no
+ISO extra key beside left Shift; test scan code `0x56` only with an ISO keyboard.
+
 - [ ] German Windows + German ISO keyboard + iPhone German **Hardware Keyboard** setting:
       verify Y/Z, umlauts, sharp S, punctuation, and the extra key beside left Shift
-- [ ] Verify Shift, AltGr combinations (`@`, euro, braces, pipe), and dead-key compositions;
-      record any host-specific modifier behavior, including Windows' synthetic Ctrl for AltGr
+- [ ] Verify Shift, AltGr combinations (`@`, euro, braces, pipe), and dead-key compositions
+      on each host, noting where the host layout places a symbol differently from Windows
+- [ ] With German Windows, `AltGr+Q` types `@` on the host and **does not stop capture**;
+      `AltGr+CapsLock` and `AltGr+D+C` do not switch targets
+- [ ] With This PC targeted, AltGr still types `@`, `€`, and braces locally
+- [ ] Switch targets while holding AltGr: no Ctrl or Alt remains stuck on either side
 - [ ] US and UK ANSI/ISO keyboards: verify punctuation, Shift combinations, and the ISO extra key
 - [ ] French AZERTY: verify A/Q, Z/W, M, digits with Shift, and punctuation
 - [ ] Change the Windows input language while capturing: physical usages remain unchanged
 - [ ] Change the receiver's hardware layout: output follows that layout, not the Windows layout
+- [ ] Set the receiver to US while Windows stays German: `Y` types `y` (the old build typed `z`)
 - [ ] Switch targets and broadcast to two layouts: each host interprets the same key positions
 - [ ] Confirm key releases, Caps Lock, numpad/navigation distinction, and all capture hotkeys
 - [ ] Test with an existing bond: no forget/re-pair should be required, because GATT is unchanged

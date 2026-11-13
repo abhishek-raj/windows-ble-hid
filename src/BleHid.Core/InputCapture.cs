@@ -14,6 +14,9 @@ public sealed class InputCapture : IDisposable
     private const uint LLMHF_INJECTED = 0x01;
     /// <summary>Set for keys that send an E0 prefix: the navigation cluster, Keypad Enter, Keypad /.</summary>
     private const uint LLKHF_EXTENDED = 0x01;
+    private const int VK_LCONTROL = 0xA2;
+    // Windows synthesizes this Left Control scan code for AltGr layouts. It is not a key press.
+    private const uint AltGrSyntheticControlScanCode = 0x21D;
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
@@ -42,6 +45,7 @@ public sealed class InputCapture : IDisposable
     private int _keyboardEvents, _mouseEvents, _rearms;
     private bool _switchLatched;
     private bool _capsLockSwitchLatched;
+    private bool _localAltGrSyntheticControl;
     private volatile bool _passThrough;
     private volatile bool _running;
     // Swapped from the settings-watcher thread while the hook thread reads it, so the field has
@@ -289,6 +293,12 @@ public sealed class InputCapture : IDisposable
     internal bool HandleKeyboardEvent(int virtualKey, bool isDown, uint scanCode = 0, bool extended = false)
     {
         _keyboardEvents++;
+
+        // AltGr arrives as a synthetic Left Control followed by Right Alt. Treating the fake
+        // Control as physical sends Ctrl+AltGr to hosts and makes AltGr+Q match Ctrl+Alt+Q.
+        if (virtualKey == VK_LCONTROL && scanCode == AltGrSyntheticControlScanCode)
+            return HandleAltGrSyntheticControl(isDown);
+
         var releaseLocally = !isDown && _localPressedVirtualKeys.Remove(virtualKey);
 
         if (isDown) _pressedVirtualKeys.Add(virtualKey);
@@ -350,6 +360,24 @@ public sealed class InputCapture : IDisposable
             Log?.Invoke($"  [key] vk=0x{virtualKey:x2} {(isDown ? "down" : "up")} -> mod=0x{(byte)modifiers:x2} usages=[{string.Join(" ", usages.Select(u => u.ToString("x2")))}]");
 
         KeyboardReport?.Invoke(modifiers, usages);
+        return !releaseLocally;
+    }
+
+    /// <summary>
+    /// Keeps the synthetic key out of HID and hotkey state, while still balancing any down
+    /// event that Windows already received before capture took input away.
+    /// </summary>
+    private bool HandleAltGrSyntheticControl(bool isDown)
+    {
+        if (isDown)
+        {
+            if (!_passThrough) return true;
+            _localAltGrSyntheticControl = true;
+            return false;
+        }
+
+        var releaseLocally = _localAltGrSyntheticControl;
+        _localAltGrSyntheticControl = false;
         return !releaseLocally;
     }
 
