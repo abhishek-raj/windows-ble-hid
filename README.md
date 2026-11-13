@@ -639,6 +639,9 @@ and the experiment protocol.
 - Platform fixes for provider-restart reconnect and bonded CCCD persistence
 - Test iPad, smart TV and Linux hosts
 - Consumer-control and media keys
+- JIS/ABNT and other international keys (Yen, Ro, Henkan/Muhenkan, Katakana/Hiragana,
+  ABNT keypad comma). Needs a wider report-map key range, so existing hosts will need to
+  forget and re-pair once; planned alongside media keys so that happens only once
 
 ---
 
