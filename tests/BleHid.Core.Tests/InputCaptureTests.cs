@@ -37,21 +37,131 @@ public sealed class InputCaptureTests
     }
 
     [Fact]
-    public void Right_alt_and_shift_are_forwarded_with_physical_iso_key()
+    public void Altgr_sends_only_right_alt_with_physical_iso_key()
     {
         using var capture = new InputCapture();
         var reports = new List<(KeyModifiers Modifiers, byte[] Usages)>();
         capture.KeyboardReport += (modifiers, usages) => reports.Add((modifiers, usages));
-        capture.HandleKeyboardEvent(0xA5, true, 0x38, true);
+        PressAltGr(capture, true);
         capture.HandleKeyboardEvent(0xA0, true, 0x2A);
         capture.HandleKeyboardEvent(0xE2, true, 0x56);
         Assert.Equal(KeyModifiers.RightAlt | KeyModifiers.LeftShift, reports[^1].Modifiers);
         Assert.Equal(new byte[] { 0x64 }, reports[^1].Usages);
         capture.HandleKeyboardEvent(0xE2, false, 0x56);
         capture.HandleKeyboardEvent(0xA0, false, 0x2A);
-        capture.HandleKeyboardEvent(0xA5, false, 0x38, true);
+        PressAltGr(capture, false);
         Assert.Equal(KeyModifiers.None, reports[^1].Modifiers);
         Assert.Empty(reports[^1].Usages);
+    }
+
+    [Fact]
+    public void Synthetic_altgr_control_is_never_forwarded_to_the_host()
+    {
+        using var capture = new InputCapture();
+        var reports = 0;
+        capture.KeyboardReport += (_, _) => reports++;
+
+        Assert.True(capture.HandleKeyboardEvent(LeftControl, true, AltGrControlScanCode));
+        Assert.True(capture.HandleKeyboardEvent(LeftControl, false, AltGrControlScanCode));
+
+        Assert.Equal(0, reports);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Altgr_q_types_at_sign_instead_of_stopping_capture(bool passThrough)
+    {
+        using var capture = new InputCapture();
+        capture.SetPassThrough(passThrough);
+        var stops = 0;
+        var reports = new List<(KeyModifiers Modifiers, byte[] Usages)>();
+        capture.StopRequested += () => stops++;
+        capture.KeyboardReport += (modifiers, usages) => reports.Add((modifiers, usages));
+
+        PressAltGr(capture, true);
+        var swallowed = capture.HandleKeyboardEvent(0x51, true, 0x10);
+        capture.HandleKeyboardEvent(0x51, false, 0x10);
+        PressAltGr(capture, false);
+
+        Assert.Equal(0, stops);
+        Assert.Equal(!passThrough, swallowed);
+        if (!passThrough)
+        {
+            Assert.Contains(reports, r => r.Modifiers == KeyModifiers.RightAlt && r.Usages.SequenceEqual(new byte[] { 0x14 }));
+            Assert.DoesNotContain(reports, r => r.Modifiers.HasFlag(KeyModifiers.LeftControl));
+        }
+    }
+
+    [Fact]
+    public void Altgr_does_not_trigger_host_switch_hotkeys()
+    {
+        using var capture = new InputCapture();
+        var switches = 0;
+        capture.SwitchHostRequested += () => switches++;
+
+        PressAltGr(capture, true);
+        capture.HandleKeyboardEvent(CapsLock, true, 0x3A);
+        capture.HandleKeyboardEvent(CapsLock, false, 0x3A);
+        capture.HandleKeyboardEvent(0x44, true, 0x20);
+        capture.HandleKeyboardEvent(0x43, true, 0x2E);
+        capture.HandleKeyboardEvent(0x43, false, 0x2E);
+        capture.HandleKeyboardEvent(0x44, false, 0x20);
+        PressAltGr(capture, false);
+
+        Assert.Equal(0, switches);
+    }
+
+    [Fact]
+    public void Real_control_with_altgr_still_stops_capture()
+    {
+        using var capture = new InputCapture();
+        var stops = 0;
+        capture.StopRequested += () => stops++;
+
+        capture.HandleKeyboardEvent(LeftControl, true, 0x1D);
+        PressAltGr(capture, true);
+        Assert.True(capture.HandleKeyboardEvent(0x51, true, 0x10));
+
+        Assert.Equal(1, stops);
+    }
+
+    [Fact]
+    public void Synthetic_altgr_control_balances_local_down_after_switching_away()
+    {
+        using var capture = new InputCapture();
+        capture.SetPassThrough(true);
+        Assert.False(capture.HandleKeyboardEvent(LeftControl, true, AltGrControlScanCode));
+
+        capture.SetPassThrough(false);
+        Assert.True(capture.HandleKeyboardEvent(LeftControl, true, AltGrControlScanCode)); // repeat
+        Assert.False(capture.HandleKeyboardEvent(LeftControl, false, AltGrControlScanCode));
+    }
+
+    [Fact]
+    public void Synthetic_altgr_control_swallowed_remotely_is_not_released_locally()
+    {
+        using var capture = new InputCapture();
+        Assert.True(capture.HandleKeyboardEvent(LeftControl, true, AltGrControlScanCode));
+
+        capture.SetPassThrough(true);
+        Assert.True(capture.HandleKeyboardEvent(LeftControl, false, AltGrControlScanCode));
+    }
+
+    private const uint AltGrControlScanCode = 0x21D;
+
+    private static void PressAltGr(InputCapture capture, bool isDown)
+    {
+        if (isDown)
+        {
+            capture.HandleKeyboardEvent(LeftControl, true, AltGrControlScanCode);
+            capture.HandleKeyboardEvent(0xA5, true, 0x38, true);
+        }
+        else
+        {
+            capture.HandleKeyboardEvent(LeftControl, false, AltGrControlScanCode);
+            capture.HandleKeyboardEvent(0xA5, false, 0x38, true);
+        }
     }
 
     [Fact]

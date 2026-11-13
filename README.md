@@ -373,12 +373,27 @@ keyboard language alone do not guarantee the hardware keyboard uses German.
 
 Standard PC ANSI/ISO key positions, including the ISO key beside left Shift (`< > |` on
 German keyboards), are forwarded by scan code in both the desktop app and CLI. Shift and
-right Alt/AltGr modifiers are forwarded; the receiving layout determines symbols and dead
-keys. Existing capture hotkeys retain their Windows virtual-key meaning. Changing the
-Windows layout does not select or change a remote layout, and broadcasting sends the same
-positions to all hosts, so different host layouts can produce different text.
+AltGr are forwarded; the receiving layout determines symbols and dead keys. AltGr reaches
+the host as Right Alt only: the extra Left Ctrl that Windows synthesizes for AltGr is
+dropped, so `AltGr+Q` (`@` on German) types instead of matching the `Ctrl+Alt+Q` stop
+hotkey. Existing capture hotkeys retain their Windows virtual-key meaning. Broadcasting
+sends the same positions to all hosts, so different host layouts can produce different text.
 
-No new pairing or GATT/report-descriptor change is needed for this mapping fix. JIS-specific
+The receiver's layout can still differ from Windows for the same physical key. For example,
+Apple's German layout places `@` on Option+L rather than AltGr+Q.
+
+#### Behavior change from v0.6.0 and earlier
+
+Earlier versions sent the key Windows had already translated with its active layout. Now
+**the Windows keyboard layout has no effect on what the receiver types**:
+
+- If Windows used a non-US layout and the receiver a **US** layout, output now follows the
+  receiver: set the receiver to the same layout as your physical keyboard.
+- **Dvorak, Colemak, and other software-only Windows layouts** no longer carry over. Select
+  the same layout on the receiver, where supported.
+- Switching the Windows input language while capturing no longer changes remote output.
+
+No new pairing or GATT/report-descriptor change is needed for this mapping fix. JIS/ABNT-specific
 keys, IME composition, and automatic character translation between different host layouts
 are not implemented. Missing or unknown scan codes retain the legacy virtual-key fallback.
 
