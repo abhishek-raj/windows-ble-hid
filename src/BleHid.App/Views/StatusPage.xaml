@@ -3,8 +3,9 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
       xmlns:conv="clr-namespace:BleHid.App.Converters"
+      xmlns:l="clr-namespace:BleHid.App.Localization"
       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-      Title="Status">
+      Title="{l:Tr app.nav.status}">
 
   <Page.Resources>
     <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
@@ -16,31 +17,31 @@
        scroller swallows the wheel without being able to scroll. -->
   <StackPanel Margin="24,0,24,24">
 
-      <ui:TextBlock Text="Status" FontTypography="TitleLarge" Margin="0,0,0,4" />
-      <ui:TextBlock Text="Publish the keyboard and mouse services, then pair from the device you want to control."
+      <ui:TextBlock Text="{l:Tr app.nav.status}" FontTypography="TitleLarge" Margin="0,0,0,4" />
+      <ui:TextBlock Text="{l:Tr app.status.description}"
                     FontTypography="Body" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                     TextWrapping="Wrap" Margin="0,0,0,20" />
 
       <ui:InfoBar Severity="Warning" IsClosable="False" Margin="0,0,0,16"
-                  Title="Not advertising"
-                  Message="Start the peripheral to make this PC discoverable as a Bluetooth keyboard."
+                  Title="{l:Tr app.status.notAdvertising.title}"
+                  Message="{l:Tr app.status.notAdvertising.message}"
                   IsOpen="{Binding IsRunning, Converter={StaticResource InverseBool}}" />
 
       <ui:CardControl Icon="{ui:SymbolIcon Bluetooth24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
           <StackPanel>
-            <ui:TextBlock Text="BLE HID peripheral" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="{l:Tr app.status.peripheral}" FontTypography="BodyStrong" />
             <ui:TextBlock FontTypography="Caption"
                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="{Binding AdvertisementStatus, StringFormat='Advertisement: {0}'}" />
+                          Text="{Binding AdvertisementStatus, Converter={l:Format app.status.advertisement}}" />
           </StackPanel>
         </ui:CardControl.Header>
 
         <StackPanel Orientation="Horizontal">
-          <ui:Button Content="Start" Appearance="Primary" Click="OnStart"
+          <ui:Button Content="{l:Tr app.status.start}" Appearance="Primary" Click="OnStart"
                      IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
                      Visibility="{Binding IsRunning, Converter={StaticResource InverseBoolToVisibility}}" />
-          <ui:Button Content="Stop" Click="OnStop"
+          <ui:Button Content="{l:Tr app.status.stop}" Click="OnStop"
                      IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
                      Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}" />
         </StackPanel>
@@ -49,10 +50,10 @@
       <ui:CardControl Icon="{ui:SymbolIcon LockClosed24}" Margin="0,0,0,8">
         <ui:CardControl.Header>
           <StackPanel>
-            <ui:TextBlock Text="Require encryption" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="{l:Tr app.status.encryption.title}" FontTypography="BodyStrong" />
             <ui:TextBlock FontTypography="Caption"
                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="Hosts must bond before they can read reports. Can only be changed while stopped." />
+                          Text="{l:Tr app.status.encryption.description}" />
           </StackPanel>
         </ui:CardControl.Header>
         <ui:ToggleSwitch IsChecked="{Binding RequireEncryption, Mode=TwoWay}"
@@ -68,20 +69,20 @@
 
         <ui:CardControl Grid.Column="0" Icon="{ui:SymbolIcon Keyboard24}">
           <ui:CardControl.Header>
-            <ui:TextBlock Text="Keyboard subscribers" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="{l:Tr app.status.keyboardSubscribers}" FontTypography="BodyStrong" />
           </ui:CardControl.Header>
           <ui:TextBlock Text="{Binding KeyboardSubscribers}" FontTypography="TitleLarge" />
         </ui:CardControl>
 
         <ui:CardControl Grid.Column="2" Icon="{ui:SymbolIcon Cursor24}">
           <ui:CardControl.Header>
-            <ui:TextBlock Text="Mouse subscribers" FontTypography="BodyStrong" />
+            <ui:TextBlock Text="{l:Tr app.status.mouseSubscribers}" FontTypography="BodyStrong" />
           </ui:CardControl.Header>
           <ui:TextBlock Text="{Binding MouseSubscribers}" FontTypography="TitleLarge" />
         </ui:CardControl>
       </Grid>
 
-      <ui:TextBlock Text="Logs" FontTypography="Subtitle" Margin="0,0,0,8" />
+      <ui:TextBlock Text="{l:Tr app.status.logs}" FontTypography="Subtitle" Margin="0,0,0,8" />
       <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
               BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
               BorderThickness="1" CornerRadius="8" Height="220">

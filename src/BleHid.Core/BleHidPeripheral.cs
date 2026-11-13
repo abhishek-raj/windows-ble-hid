@@ -539,26 +539,34 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     /// actually bite - many hosts report it permanently off (Apple keyboards have no Num Lock
     /// key at all), and warning about that unprompted would be constant noise.
     /// </param>
-    public static string? DescribeLockKeys(LockKeys keys, bool numpadUsed)
+    public static string? DescribeLockKeys(LockKeys keys, bool numpadUsed) =>
+        DescribeLockAlert(LockAlertFor(keys, numpadUsed));
+
+    /// <summary>The lock states worth warning about, without wording, so a UI can phrase them.</summary>
+    public static LockAlert LockAlertFor(LockKeys keys, bool numpadUsed)
     {
-        var caps = keys.HasFlag(LockKeys.CapsLock);
-        var numOff = numpadUsed && !keys.HasFlag(LockKeys.NumLock);
-        if (caps && numOff) return "CAPS LOCK ON, NUM LOCK OFF";
-        if (caps) return "CAPS LOCK ON";
-        return numOff ? "NUM LOCK OFF" : null;
+        var alert = LockAlert.None;
+        if (keys.HasFlag(LockKeys.CapsLock)) alert |= LockAlert.CapsLockOn;
+        if (numpadUsed && !keys.HasFlag(LockKeys.NumLock)) alert |= LockAlert.NumLockOff;
+        return alert;
     }
 
-    internal static string? DescribeTargetLockKeys(IEnumerable<(LockKeys Keys, bool NumpadUsed)> hosts)
+    /// <summary>English wording for logs and the CLI; null when nothing is worth saying.</summary>
+    public static string? DescribeLockAlert(LockAlert alert) => alert switch
     {
-        var capsOn = false;
-        var numOff = false;
-        foreach (var host in hosts)
-        {
-            capsOn |= host.Keys.HasFlag(LockKeys.CapsLock);
-            numOff |= host.NumpadUsed && !host.Keys.HasFlag(LockKeys.NumLock);
-        }
-        return DescribeLockKeys(capsOn ? LockKeys.CapsLock : LockKeys.None, numOff);
-    }
+        LockAlert.CapsLockOn | LockAlert.NumLockOff => "CAPS LOCK ON, NUM LOCK OFF",
+        LockAlert.CapsLockOn => "CAPS LOCK ON",
+        LockAlert.NumLockOff => "NUM LOCK OFF",
+        _ => null
+    };
+
+    internal static string? DescribeTargetLockKeys(IEnumerable<(LockKeys Keys, bool NumpadUsed)> hosts) =>
+        DescribeLockAlert(TargetLockAlertFor(hosts));
+
+    // Per host first: one host with Num Lock on must not hide another whose numpad turned into
+    // cursor keys.
+    internal static LockAlert TargetLockAlertFor(IEnumerable<(LockKeys Keys, bool NumpadUsed)> hosts) =>
+        hosts.Aggregate(LockAlert.None, (all, host) => all | LockAlertFor(host.Keys, host.NumpadUsed));
 
     /// <summary>True when the numpad has been used against the given host.</summary>
     public bool NumpadUsed(string deviceId) => _lockState.NumpadUsed(deviceId);
@@ -566,9 +574,12 @@ public sealed class BleHidPeripheral : IAsyncDisposable
     /// <summary>
     /// What is worth saying about the current target's lock keys, or null when nothing is.
     /// </summary>
-    public string? TargetLockWarning => _localOnly
-        ? null
-        : DescribeTargetLockKeys(TargetedHosts().Select(host =>
+    public string? TargetLockWarning => DescribeLockAlert(TargetLockAlert);
+
+    /// <summary>The current target's lock states worth warning about.</summary>
+    public LockAlert TargetLockAlert => _localOnly
+        ? LockAlert.None
+        : TargetLockAlertFor(TargetedHosts().Select(host =>
             (LockKeysFor(host.DeviceId), NumpadUsed(host.DeviceId))));
 
     /// <summary>The hosts a report would currently reach: the selected one, or all when broadcasting.</summary>

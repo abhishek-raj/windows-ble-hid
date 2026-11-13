@@ -1,0 +1,73 @@
+name: translation-apply
+
+# Turns an approved translation issue into a pull request that credits the translator.
+# Only people with triage access can add the approval label, and the submission is validated
+# again here, so an edit made after review cannot slip anything past the checks.
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: translation-apply-${{ github.event.issue.number }}
+
+jobs:
+  apply:
+    if: >
+      github.event.label.name == 'translation-approved'
+      && contains(github.event.issue.labels.*.name, 'translation')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply the approved translation
+        id: apply
+        run: >
+          dotnet run --project tools/BleHid.Translations -c Release --
+          issue apply --event "$GITHUB_EVENT_PATH" --out "$RUNNER_TEMP/translation"
+
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          TITLE: ${{ steps.apply.outputs.title }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          branch="translations/issue-$ISSUE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add localization android/BleHid.Companion/app/src/main/res
+          if git diff --cached --quiet; then
+            gh issue comment "$ISSUE" --body "This translation is already included, so there is nothing to change."
+            exit 0
+          fi
+          git commit -F "$RUNNER_TEMP/translation/commit-message.txt"
+          git push --force origin "$branch"
+
+          pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$TITLE" --body-file "$RUNNER_TEMP/translation/pr-body.md"
+            url=$(gh pr view "$pr" --json url --jq .url)
+          else
+            url=$(gh pr create --base "$BASE" --head "$branch" --title "$TITLE" --body-file "$RUNNER_TEMP/translation/pr-body.md")
+          fi
+          gh issue comment "$ISSUE" --body "Thank you! Your translation is in $url and will be included once it is merged."
+
+      - name: Report a failure on the issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh issue edit "$ISSUE" --remove-label translation-approved
+          gh issue comment "$ISSUE" --body "The approved translation could not be turned into a pull request. See the check comment above, or the workflow log for maintainers."

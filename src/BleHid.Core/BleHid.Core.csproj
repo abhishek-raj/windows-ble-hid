@@ -12,4 +12,8 @@
     <InternalsVisibleTo Include="BleHid.Core.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\BleHid.Localization\BleHid.Localization.csproj" />
+  </ItemGroup>
+
 </Project>

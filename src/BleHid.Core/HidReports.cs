@@ -36,6 +36,15 @@ public enum LockKeys : byte
     CapsLock = 0x02
 }
 
+/// <summary>Lock states on a host that are worth warning about, kept separate from wording.</summary>
+[Flags]
+public enum LockAlert
+{
+    None       = 0,
+    CapsLockOn = 1,
+    NumLockOff = 2
+}
+
 /// <summary>
 /// Builds HID input report payloads. In HOGP report-protocol mode the Report ID is
 /// conveyed by the characteristic's Report Reference descriptor, not the payload.

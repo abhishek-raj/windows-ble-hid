@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Threading;
 using BleHid.Core;
+using BleHid.Localization;
 
 namespace BleHid.App.Services;
 
@@ -72,7 +73,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
     /// <summary>What the pump actually paces to: the host's negotiated interval or the minimum above.</summary>
     public int LinkIntervalMs { get => _linkIntervalMs; private set => Set(ref _linkIntervalMs, value); }
 
-    private string _advertisementStatus = "Stopped";
+    private string _advertisementStatus = Loc.T("advertisement.stopped");
     public string AdvertisementStatus { get => _advertisementStatus; private set => Set(ref _advertisementStatus, value); }
 
     private int _keyboardSubscribers;
@@ -81,7 +82,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
     private int _mouseSubscribers;
     public int MouseSubscribers { get => _mouseSubscribers; private set => Set(ref _mouseSubscribers, value); }
 
-    private string _target = "nothing yet";
+    private string _target = Loc.T("target.none");
     public string Target { get => _target; private set => Set(ref _target, value); }
 
     private bool _targetCapsLockOn;
@@ -152,9 +153,9 @@ public sealed class PeripheralService : INotifyPropertyChanged
             Hosts.Clear();
             Targets.Clear();
             _hostSignature = null;
-            AdvertisementStatus = "Stopped";
+            AdvertisementStatus = Loc.T("advertisement.stopped");
             KeyboardSubscribers = MouseSubscribers = 0;
-            Target = "nothing yet";
+            Target = Loc.T("target.none");
             Append("peripheral stopped");
         }
         finally
@@ -212,8 +213,8 @@ public sealed class PeripheralService : INotifyPropertyChanged
                 break;
         }
 
-        Target = _peripheral.SelectedHostDisplay;
-        Append($"[host] -> {Target}");
+        Target = DisplayText.Target(_peripheral);
+        Append($"[host] -> {_peripheral.SelectedHostDisplay}");
         SyncSelection();
     }
 
@@ -250,8 +251,8 @@ public sealed class PeripheralService : INotifyPropertyChanged
 
         Targets.Add(new TargetOption
         {
-            Title = "This PC",
-            Detail = "Capture stays armed but keystrokes are passed through locally.",
+            Title = Loc.T("app.target.thisPc.title"),
+            Detail = Loc.T("app.target.thisPc.detail"),
             Kind = TargetKind.Local
         });
 
@@ -354,9 +355,9 @@ public sealed class PeripheralService : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsRedirecting));
         }
 
-        Target = _peripheral.SelectedHostDisplay;
+        Target = DisplayText.Target(_peripheral);
         TargetCapsLockOn = _peripheral.TargetCapsLockOn;
-        SetLockWarning(_peripheral.TargetLockWarning);
+        SetLockWarning(DisplayText.LockAlert(_peripheral.TargetLockAlert));
     }
 
     private void SetLockWarning(string? warning)
@@ -371,13 +372,13 @@ public sealed class PeripheralService : INotifyPropertyChanged
     {
         if (_peripheral is null) return;
         TargetCapsLockOn = _peripheral.TargetCapsLockOn;
-        SetLockWarning(_peripheral.TargetLockWarning);
+        SetLockWarning(DisplayText.LockAlert(_peripheral.TargetLockAlert));
     }
 
     private void RefreshCounters()
     {
         if (_peripheral is null) return;
-        AdvertisementStatus = _peripheral.AdvertisementStatus.ToString();
+        AdvertisementStatus = DisplayText.Advertisement(_peripheral.AdvertisementStatus);
         KeyboardSubscribers = _peripheral.SubscribedKeyboardClients;
         MouseSubscribers = _peripheral.SubscribedMouseClients;
         // Ctrl+D+C changes the target without going through the UI, so mirror it back.

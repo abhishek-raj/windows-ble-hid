@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using BleHid.App.Services;
 using BleHid.Core;
+using BleHid.Localization;
 using Wpf.Ui.Appearance;
 
 namespace BleHid.App;
@@ -24,6 +25,10 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // First, so even the already-running prompt is in the user's language.
+        Loc.Initialize(AppSettings.Instance.Language);
+        Shortcuts.ShareWithTranslations();
+
         if (!TryTakeOwnership())
         {
             Shutdown();
@@ -81,8 +86,7 @@ public partial class App : Application
         if (owned) return true;
 
         var answer = MessageBox.Show(
-            "BLE HID is already running, either in the notification area or as the command line "
-            + "background service.\n\nStop it and continue?",
+            Loc.T("app.dialog.alreadyRunning"),
             "BLE HID", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return false;
 
@@ -94,7 +98,7 @@ public partial class App : Application
         catch (WaitHandleCannotBeOpenedException)
         {
             MessageBox.Show(
-                "The running instance is too old to accept a stop request. Exit it manually.",
+                Loc.T("app.dialog.tooOldToStop"),
                 "BLE HID", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
@@ -107,7 +111,7 @@ public partial class App : Application
         }
 
         if (!owned)
-            MessageBox.Show("The running instance did not stop in time.",
+            MessageBox.Show(Loc.T("app.dialog.didNotStop"),
                 "BLE HID", MessageBoxButton.OK, MessageBoxImage.Warning);
 
         return owned;
@@ -144,7 +148,7 @@ public partial class App : Application
     {
         Report(e.Exception);
         e.Handled = true;
-        MessageBox.Show($"{e.Exception.Message}\n\nLogged to {LogPath}",
+        MessageBox.Show(Loc.T("app.dialog.unexpectedError", ("message", e.Exception.Message), ("path", LogPath)),
             "BLE HID", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 

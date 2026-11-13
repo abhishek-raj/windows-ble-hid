@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from localization/zh-Hans.json by tools/BleHid.Translations. Do not edit; see TRANSLATING.md. -->
+<resources>
+    <string name="monitor_notification_channel">BleHid 连接</string>
+    <string name="monitor_notification_title">正在监控 BleHid</string>
+    <string name="monitor_notification_text">正在保持一个蓝牙诊断连接</string>
+    <string name="stop_monitoring">停止</string>
+    <string name="share_diagnostics">分享诊断信息</string>
+    <string name="events_empty">连接事件将显示在这里。</string>
+    <string name="no_computer">尚未关联电脑</string>
+    <string name="allow_nearby_devices">允许访问附近的设备</string>
+    <string name="find_computer">查找电脑</string>
+    <string name="change_computer">更换电脑</string>
+    <string name="connection_monitor">连接监控</string>
+    <string name="monitor_waiting">正在等待已关联的电脑</string>
+    <string name="monitor_off">已关闭</string>
+    <string name="monitor_connecting">正在打开诊断 GATT 连接</string>
+    <string name="monitor_discovering">正在读取电脑的服务数据库</string>
+    <string name="monitor_ready">已连接，正在监视数据库变化</string>
+    <string name="monitor_retrying">%1$s 秒后重试</string>
+    <string name="monitor_failed">连接失败</string>
+    <string name="state_idle">空闲</string>
+    <string name="state_connecting">连接中</string>
+    <string name="state_discovering">发现中</string>
+    <string name="state_ready">就绪</string>
+    <string name="state_retrying">重试中</string>
+    <string name="state_failed">失败</string>
+    <string name="section_database">GATT 数据库</string>
+    <string name="metric_reports">报告</string>
+    <string name="metric_hash">哈希</string>
+    <string name="metric_services">服务</string>
+    <string name="metric_changed">变更</string>
+    <string name="metric_presence">在场</string>
+    <string name="value_present">存在</string>
+    <string name="value_unknown">未知</string>
+    <string name="hash_saved">已保存</string>
+    <string name="hash_same">相同</string>
+    <string name="hash_changed">已变更</string>
+    <string name="presence_nearby">在附近</string>
+    <string name="presence_away">已离开</string>
+    <string name="section_recovery">恢复</string>
+    <string name="retry_gatt">重试 GATT</string>
+    <string name="connect_input">连接输入</string>
+    <string name="bluetooth_settings">蓝牙设置</string>
+    <string name="settings_required">Android %1$s 需要通过系统设置重新连接输入配置文件。</string>
+    <string name="open_bluetooth_settings">打开蓝牙设置</string>
+    <string name="section_events">事件</string>
+</resources>

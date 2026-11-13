@@ -1,6 +1,7 @@
 package dev.blehid.companion.ui
 
 import android.os.Build
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,10 +36,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.blehid.companion.R
 import dev.blehid.companion.bluetooth.CompanionRepository
 import dev.blehid.companion.bluetooth.CompanionState
 import dev.blehid.companion.bluetooth.DevicePresence
@@ -140,7 +143,7 @@ private fun CompanionScreen(
             if (state.events.isEmpty()) {
                 item {
                     Text(
-                        text = "Connection events will appear here.",
+                        text = stringResource(R.string.events_empty),
                         color = Muted,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
@@ -175,7 +178,7 @@ private fun Header(state: CompanionState) {
             StatusPill(state.connection)
         }
         Text(
-            text = state.association?.displayName ?: "No computer associated",
+            text = state.association?.displayName ?: stringResource(R.string.no_computer),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -206,11 +209,11 @@ private fun SetupActions(
     ) {
         if (!state.permissionsGranted) {
             Button(onClick = onGrantPermissions, modifier = Modifier.weight(1f)) {
-                Text("Allow nearby devices")
+                Text(stringResource(R.string.allow_nearby_devices))
             }
         }
         OutlinedButton(onClick = onAssociate, modifier = Modifier.weight(1f)) {
-            Text(if (state.association == null) "Find computer" else "Change computer")
+            Text(stringResource(if (state.association == null) R.string.find_computer else R.string.change_computer))
         }
     }
 }
@@ -232,7 +235,7 @@ private fun MonitoringPanel(state: CompanionState, onMonitoringChange: (Boolean)
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Connection monitor", fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.connection_monitor), fontWeight = FontWeight.SemiBold)
                 Text(
                     text = connectionDescription(state),
                     color = Muted,
@@ -253,7 +256,7 @@ private fun MonitoringPanel(state: CompanionState, onMonitoringChange: (Boolean)
 @Composable
 private fun DatabaseMetrics(state: CompanionState) {
     Text(
-        text = "GATT DATABASE",
+        text = stringResource(R.string.section_database),
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
         color = Muted,
@@ -267,18 +270,18 @@ private fun DatabaseMetrics(state: CompanionState) {
     ) {
         Metric(
             label = "HID",
-            value = if (state.database.hasHidService) "Present" else "Unknown",
+            value = stringResource(if (state.database.hasHidService) R.string.value_present else R.string.value_unknown),
             accent = if (state.database.hasHidService) Green else Muted,
             modifier = Modifier.weight(1f),
         )
         Metric(
-            label = "Reports",
+            label = stringResource(R.string.metric_reports),
             value = state.database.hidReportCount.takeIf { it > 0 }?.toString() ?: "-",
             accent = Blue,
             modifier = Modifier.weight(1f),
         )
         Metric(
-            label = "Hash",
+            label = stringResource(R.string.metric_hash),
             value = hashLabel(state.database.hashAssessment),
             accent = hashColor(state.database.hashAssessment),
             modifier = Modifier.weight(1f),
@@ -291,19 +294,19 @@ private fun DatabaseMetrics(state: CompanionState) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Metric(
-            label = "Services",
+            label = stringResource(R.string.metric_services),
             value = state.database.serviceCount.takeIf { it > 0 }?.toString() ?: "-",
             accent = Blue,
             modifier = Modifier.weight(1f),
         )
         Metric(
-            label = "Changed",
+            label = stringResource(R.string.metric_changed),
             value = state.database.serviceChangedCount.toString(),
             accent = if (state.database.serviceChangedCount > 0) Amber else Muted,
             modifier = Modifier.weight(1f),
         )
         Metric(
-            label = "Presence",
+            label = stringResource(R.string.metric_presence),
             value = presenceLabel(state.presence),
             accent = if (state.presence == DevicePresence.Present) Green else Muted,
             modifier = Modifier.weight(1f),
@@ -339,7 +342,7 @@ private fun RecoveryActions(
     onOpenBluetoothSettings: () -> Unit,
 ) {
     Text(
-        text = "RECOVERY",
+        text = stringResource(R.string.section_recovery),
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
         color = Muted,
@@ -356,7 +359,7 @@ private fun RecoveryActions(
             enabled = state.monitoringEnabled,
             modifier = Modifier.weight(1f),
         ) {
-            Text("Retry GATT")
+            Text(stringResource(R.string.retry_gatt))
         }
         Button(
             onClick = onConnectProfiles,
@@ -364,12 +367,12 @@ private fun RecoveryActions(
             colors = ButtonDefaults.buttonColors(containerColor = Blue),
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (ProfileConnector.isSupported()) "Connect input" else "Bluetooth settings")
+            Text(stringResource(if (ProfileConnector.isSupported()) R.string.connect_input else R.string.bluetooth_settings))
         }
     }
     if (Build.VERSION.SDK_INT < ProfileConnector.PROFILE_CONNECT_API_LEVEL) {
         Text(
-            text = "Android ${Build.VERSION.RELEASE} requires system settings to reconnect the input profile.",
+            text = stringResource(R.string.settings_required, Build.VERSION.RELEASE),
             color = Muted,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
@@ -379,7 +382,7 @@ private fun RecoveryActions(
             onClick = onOpenBluetoothSettings,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
         ) {
-            Text("Open Bluetooth settings")
+            Text(stringResource(R.string.open_bluetooth_settings))
         }
     }
 }
@@ -393,14 +396,14 @@ private fun TimelineHeader(hasEvents: Boolean, onShareDiagnostics: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "EVENTS",
+            text = stringResource(R.string.section_events),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = Muted,
         )
         Spacer(modifier = Modifier.weight(1f))
         if (hasEvents) {
-            OutlinedButton(onClick = onShareDiagnostics) { Text("Share diagnostics") }
+            OutlinedButton(onClick = onShareDiagnostics) { Text(stringResource(R.string.share_diagnostics)) }
         }
     }
 }
@@ -443,7 +446,7 @@ private fun StatusPill(connection: GattConnection) {
         GattConnection.Idle -> Color(0xFFE6EAE8) to Muted
     }
     Text(
-        text = connectionLabel(connection),
+        text = stringResource(connectionLabel(connection)),
         color = foreground,
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
@@ -453,41 +456,45 @@ private fun StatusPill(connection: GattConnection) {
     )
 }
 
+@Composable
 private fun connectionDescription(state: CompanionState): String = when (state.connection) {
-    GattConnection.Idle -> if (state.monitoringEnabled) "Waiting for the associated computer" else "Off"
-    GattConnection.Connecting -> "Opening a diagnostic GATT connection"
-    GattConnection.Discovering -> "Reading the remote service database"
-    GattConnection.Ready -> "Connected and watching database changes"
-    GattConnection.WaitingToRetry -> "Retrying in ${state.retryInSeconds ?: 0} seconds"
-    GattConnection.Failed -> state.lastError ?: "Connection failed"
+    GattConnection.Idle -> stringResource(if (state.monitoringEnabled) R.string.monitor_waiting else R.string.monitor_off)
+    GattConnection.Connecting -> stringResource(R.string.monitor_connecting)
+    GattConnection.Discovering -> stringResource(R.string.monitor_discovering)
+    GattConnection.Ready -> stringResource(R.string.monitor_ready)
+    GattConnection.WaitingToRetry -> stringResource(R.string.monitor_retrying, state.retryInSeconds ?: 0)
+    // Errors stay in English: they are diagnostics, shared as-is in bug reports.
+    GattConnection.Failed -> state.lastError ?: stringResource(R.string.monitor_failed)
 }
 
-private fun connectionLabel(connection: GattConnection): String = when (connection) {
-    GattConnection.Idle -> "IDLE"
-    GattConnection.Connecting -> "CONNECTING"
-    GattConnection.Discovering -> "DISCOVERING"
-    GattConnection.Ready -> "READY"
-    GattConnection.WaitingToRetry -> "RETRYING"
-    GattConnection.Failed -> "FAILED"
+@StringRes
+private fun connectionLabel(connection: GattConnection): Int = when (connection) {
+    GattConnection.Idle -> R.string.state_idle
+    GattConnection.Connecting -> R.string.state_connecting
+    GattConnection.Discovering -> R.string.state_discovering
+    GattConnection.Ready -> R.string.state_ready
+    GattConnection.WaitingToRetry -> R.string.state_retrying
+    GattConnection.Failed -> R.string.state_failed
 }
 
+@Composable
 private fun hashLabel(assessment: HashAssessment): String = when (assessment) {
     HashAssessment.Unavailable -> "-"
-    HashAssessment.FirstSeen -> "Saved"
-    HashAssessment.Unchanged -> "Same"
-    HashAssessment.Changed -> "Changed"
+    HashAssessment.FirstSeen -> stringResource(R.string.hash_saved)
+    HashAssessment.Unchanged -> stringResource(R.string.hash_same)
+    HashAssessment.Changed -> stringResource(R.string.hash_changed)
 }
-
 private fun hashColor(assessment: HashAssessment): Color = when (assessment) {
     HashAssessment.FirstSeen, HashAssessment.Unchanged -> Green
     HashAssessment.Changed -> Amber
     HashAssessment.Unavailable -> Muted
 }
 
+@Composable
 private fun presenceLabel(presence: DevicePresence): String = when (presence) {
-    DevicePresence.Unknown -> "Unknown"
-    DevicePresence.Present -> "Nearby"
-    DevicePresence.Away -> "Away"
+    DevicePresence.Unknown -> stringResource(R.string.value_unknown)
+    DevicePresence.Present -> stringResource(R.string.presence_nearby)
+    DevicePresence.Away -> stringResource(R.string.presence_away)
 }
 
 private fun eventColor(level: EventLevel): Color = when (level) {

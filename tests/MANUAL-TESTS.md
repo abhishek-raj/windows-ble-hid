@@ -173,6 +173,25 @@ Treat every line here as unproven.
 - [ ] `--diagnose` output is complete enough to triage a stranger's bug report
 - [ ] Background log rotates rather than growing past 5 MB
 
+## 10a. Languages
+
+Run with the Windows display language set to English, then switch languages from the app.
+
+- [ ] With no language chosen, the app follows the Windows display language
+- [ ] **Settings → Language** lists Windows display language, Deutsch, English and
+      中文（简体）, each in its own script, and a screen reader announces those names
+- [ ] Choosing Deutsch, then restarting, shows every page, the tray menu, the tray balloon
+      and the already-running prompt in German, with no clipped or overlapping text
+- [ ] The same for 中文（简体）, including the Caps Lock warning bar and tray tooltip
+- [ ] Changing the language does **not** restart the peripheral or disconnect hosts
+- [ ] The Status page log, `--diagnose`, and the background log stay in English
+- [ ] `BleHid.Cli.exe --lang zh-Hans` shows readable Chinese help in Windows Terminal and
+      conhost, with aligned `status` columns, and the console code page is restored on exit
+- [ ] `BLEHID_LANG=de` gives German CLI messages; commands are still typed in English
+- [ ] The Android companion follows the phone's language, including its notification
+- [ ] A test issue from the **Translation** form gets a bot reply; adding
+      `translation-approved` opens a pull request crediting the issue author
+
 ## 11. Android companion
 
 - [ ] Fresh install opens without a crash and shows **No computer associated**

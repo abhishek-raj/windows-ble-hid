@@ -12,6 +12,11 @@ workarounds.
 - `src/BleHid.Cli` is the interactive diagnostic client and resident background process.
 - `src/BleHid.App` is the WPF desktop UI. It shares one `PeripheralService` instance for
   the lifetime of the process.
+- `src/BleHid.Localization` holds the translated-text lookup used by the app, CLI and
+  `DisplayText`; the strings themselves live in `localization/*.json`. See
+  [TRANSLATING.md](TRANSLATING.md).
+- `tools/BleHid.Translations` validates translation issues, merges approved ones, and
+  generates the Android string resources.
 - `android/BleHid.Companion` is the Android 12+ companion. It owns a separate diagnostic
   GATT connection and never receives or subscribes to HID input reports.
 - `tests/BleHid.Core.Tests` contains unit tests for report encoding, paths, pacing
@@ -914,6 +919,11 @@ For the WinRT peripheral, distinguish normal link loss from provider recreation:
 - Observable collections owned by the UI must be cleared on the dispatcher during shutdown.
 - The app and CLI share `AppPaths.Root`; logs belong in `%LOCALAPPDATA%\BleHid\logs` and
   user configuration belongs directly in `%LOCALAPPDATA%\BleHid`.
+- User-facing text comes from `localization/en.json`; never hard-code it in XAML, C# UI
+  code or Kotlin. Logs, Core's English descriptions and diagnostics stay English. Tests fail
+  on a missing, unused or stale key; see [TRANSLATING.md](TRANSLATING.md#developers).
+- The language is chosen once at startup, and the setting applies at the next start rather
+  than forcing one: a restart recreates the GATT provider, which breaks Android reconnection.
 
 ## Before committing Bluetooth changes
 

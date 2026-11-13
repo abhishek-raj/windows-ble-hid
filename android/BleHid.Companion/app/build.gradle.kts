@@ -28,6 +28,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    // Translations are contributed in parts and untranslated strings fall back to English, so
+    // an incomplete language must not fail release builds. Resources are generated; see TRANSLATING.md.
+    lint {
+        disable += "MissingTranslation"
+    }
 }
 
 dependencies {

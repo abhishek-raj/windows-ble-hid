@@ -3,6 +3,7 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:views="clr-namespace:BleHid.App.Views"
+                 xmlns:l="clr-namespace:BleHid.App.Localization"
                  Title="BLE HID"
                  Width="960" Height="680"
                  MinWidth="720" MinHeight="520"
@@ -37,13 +38,13 @@
                        IsBackButtonVisible="Collapsed"
                        IsPaneToggleVisible="True">
       <ui:NavigationView.MenuItems>
-        <ui:NavigationViewItem Content="Status" TargetPageType="{x:Type views:StatusPage}">
+        <ui:NavigationViewItem Content="{l:Tr app.nav.status}" TargetPageType="{x:Type views:StatusPage}">
           <ui:NavigationViewItem.Icon>
             <ui:SymbolIcon Symbol="Info24" />
           </ui:NavigationViewItem.Icon>
         </ui:NavigationViewItem>
 
-        <ui:NavigationViewItem Content="Capture" TargetPageType="{x:Type views:CapturePage}">
+        <ui:NavigationViewItem Content="{l:Tr app.nav.capture}" TargetPageType="{x:Type views:CapturePage}">
           <ui:NavigationViewItem.Icon>
             <ui:SymbolIcon Symbol="Keyboard24" />
           </ui:NavigationViewItem.Icon>
@@ -51,7 +52,7 @@
       </ui:NavigationView.MenuItems>
 
       <ui:NavigationView.FooterMenuItems>
-        <ui:NavigationViewItem Content="Settings" TargetPageType="{x:Type views:SettingsPage}">
+        <ui:NavigationViewItem Content="{l:Tr app.nav.settings}" TargetPageType="{x:Type views:SettingsPage}">
           <ui:NavigationViewItem.Icon>
             <ui:SymbolIcon Symbol="Settings24" />
           </ui:NavigationViewItem.Icon>

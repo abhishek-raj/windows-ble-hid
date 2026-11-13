@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\BleHid.Core\BleHid.Core.csproj" />
+    <ProjectReference Include="..\..\src\BleHid.Localization\BleHid.Localization.csproj" />
+    <ProjectReference Include="..\..\tools\BleHid.Translations\BleHid.Translations.csproj" />
   </ItemGroup>
 
 </Project>
