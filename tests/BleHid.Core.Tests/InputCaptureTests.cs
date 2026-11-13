@@ -9,6 +9,51 @@ public sealed class InputCaptureTests
     private const int LeftControl = 0xA2;
     private const int LeftAlt = 0xA4;
 
+    [Theory]
+    [InlineData(0x5A, 0x15, 0x1C)]
+    [InlineData(0x59, 0x2C, 0x1D)]
+    [InlineData(0xE2, 0x56, 0x64)]
+    [InlineData(0x41, 0x10, 0x14)]
+    public void Layout_keys_send_physical_usage_and_release(int vk, uint scan, byte expected)
+    {
+        using var capture = new InputCapture();
+        var reports = new List<byte[]>();
+        capture.KeyboardReport += (_, usages) => reports.Add(usages);
+        Assert.True(capture.HandleKeyboardEvent(vk, true, scan));
+        Assert.True(capture.HandleKeyboardEvent(vk, false, scan));
+        Assert.Equal(new[] { expected }, reports[0]);
+        Assert.Empty(reports[1]);
+    }
+
+    [Fact]
+    public void Physical_release_survives_windows_layout_change_while_key_is_held()
+    {
+        using var capture = new InputCapture();
+        byte[] last = [];
+        capture.KeyboardReport += (_, usages) => last = usages;
+        capture.HandleKeyboardEvent(0x5A, true, 0x15); // German Z
+        capture.HandleKeyboardEvent(0x59, false, 0x15); // US Y, same physical key
+        Assert.Empty(last);
+    }
+
+    [Fact]
+    public void Right_alt_and_shift_are_forwarded_with_physical_iso_key()
+    {
+        using var capture = new InputCapture();
+        var reports = new List<(KeyModifiers Modifiers, byte[] Usages)>();
+        capture.KeyboardReport += (modifiers, usages) => reports.Add((modifiers, usages));
+        capture.HandleKeyboardEvent(0xA5, true, 0x38, true);
+        capture.HandleKeyboardEvent(0xA0, true, 0x2A);
+        capture.HandleKeyboardEvent(0xE2, true, 0x56);
+        Assert.Equal(KeyModifiers.RightAlt | KeyModifiers.LeftShift, reports[^1].Modifiers);
+        Assert.Equal(new byte[] { 0x64 }, reports[^1].Usages);
+        capture.HandleKeyboardEvent(0xE2, false, 0x56);
+        capture.HandleKeyboardEvent(0xA0, false, 0x2A);
+        capture.HandleKeyboardEvent(0xA5, false, 0x38, true);
+        Assert.Equal(KeyModifiers.None, reports[^1].Modifiers);
+        Assert.Empty(reports[^1].Usages);
+    }
+
     [Fact]
     public void Hook_timing_separates_event_age_from_callback_duration()
     {

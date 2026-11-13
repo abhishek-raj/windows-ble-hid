@@ -10,6 +10,68 @@ namespace BleHid.Core.Tests;
 public class VirtualKeyMapTests
 {
     [Theory]
+    [InlineData(0x5A, 0x15, 0x1C)] // German Z, physical US Y
+    [InlineData(0x59, 0x2C, 0x1D)] // German Y, physical US Z
+    [InlineData(0xBA, 0x1A, 0x2F)] // German U umlaut
+    [InlineData(0xC0, 0x27, 0x33)] // German O umlaut
+    [InlineData(0xDE, 0x28, 0x34)] // German A umlaut
+    [InlineData(0xDB, 0x0C, 0x2D)] // German sharp S
+    [InlineData(0xBB, 0x1B, 0x30)] // German +
+    [InlineData(0xBF, 0x2B, 0x31)] // German #
+    [InlineData(0xBD, 0x35, 0x38)] // German -
+    [InlineData(0xE2, 0x56, 0x64)] // ISO < > | (also UK extra key)
+    [InlineData(0x41, 0x10, 0x14)] // French A, physical US Q
+    [InlineData(0x51, 0x1E, 0x04)] // French Q, physical US A
+    [InlineData(0x5A, 0x11, 0x1A)] // French Z, physical US W
+    [InlineData(0x57, 0x2C, 0x1D)] // French W, physical US Z
+    [InlineData(0x4D, 0x27, 0x33)] // French M, physical US semicolon
+    public void Physical_positions_override_layout_translated_virtual_keys(int vk, uint scan, byte expected)
+    {
+        Assert.True(VirtualKeyMap.TryGetUsage(vk, scan, false, out var usage));
+        Assert.Equal(expected, usage);
+    }
+
+    [Theory]
+    [InlineData(0x0D, 0x1C, false, 0x28)]
+    [InlineData(0x0D, 0x1C, true, 0x58)]
+    [InlineData(0x24, 0x47, false, 0x5F)]
+    [InlineData(0x24, 0x47, true, 0x4A)]
+    [InlineData(0x6A, 0x37, false, 0x55)]
+    [InlineData(0x2C, 0x37, true, 0x46)]
+    [InlineData(0x6F, 0x35, true, 0x54)]
+    [InlineData(0x13, 0x45, false, 0x48)]
+    [InlineData(0x90, 0x45, true, 0x53)]
+    public void Special_keys_preserve_physical_identity(int vk, uint scan, bool extended, byte expected)
+    {
+        Assert.True(VirtualKeyMap.TryGetUsage(vk, scan, extended, out var usage));
+        Assert.Equal(expected, usage);
+    }
+
+    [Fact]
+    public void Missing_or_unknown_scan_code_preserves_virtual_key_fallback()
+    {
+        Assert.True(VirtualKeyMap.TryGetUsage(0x41, 0, false, out var missing));
+        Assert.True(VirtualKeyMap.TryGetUsage(0x41, 0xFF, false, out var unknown));
+        Assert.Equal((byte)0x04, missing);
+        Assert.Equal(missing, unknown);
+    }
+
+    [Fact]
+    public void Physical_usages_fit_the_existing_report_descriptor()
+    {
+        foreach (var extended in new[] { false, true })
+        {
+            var seen = new HashSet<byte>();
+            for (uint scan = 1; scan < 256; scan++)
+            {
+                if (!VirtualKeyMap.TryGetUsage(0, scan, extended, out var usage)) continue;
+                Assert.InRange(usage, (byte)1, (byte)101);
+                Assert.True(seen.Add(usage), $"Duplicate physical usage {usage:X2} at scan {scan:X2}");
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(0x41, 0x04)] // A
     [InlineData(0x5A, 0x1D)] // Z
     [InlineData(0x31, 0x1E)] // 1

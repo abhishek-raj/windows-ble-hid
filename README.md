@@ -359,9 +359,34 @@ keyboard has no Num Lock state of its own; it reports the key and lets the host 
 own setting, and BleHid now does the same. Keypad Enter is sent as Keypad Enter rather than
 as the main Enter.
 
+### Keyboard layouts (German, French, UK, US)
+
+Live capture forwards **physical key positions**, not characters translated by Windows.
+The receiving device applies its own hardware-keyboard layout, just as it would for a
+physical Bluetooth keyboard. This avoids applying the Windows layout twice (for example,
+swapping German Y/Z or misinterpreting umlaut and punctuation keys).
+
+Select the layout matching your physical keyboard **on each receiving device**. For a
+German QWERTZ keyboard connected to an iPhone, choose German under **Settings > General >
+Keyboard > Hardware Keyboard** while connected. The iPhone's display language and onscreen
+keyboard language alone do not guarantee the hardware keyboard uses German.
+
+Standard PC ANSI/ISO key positions, including the ISO key beside left Shift (`< > |` on
+German keyboards), are forwarded by scan code in both the desktop app and CLI. Shift and
+right Alt/AltGr modifiers are forwarded; the receiving layout determines symbols and dead
+keys. Existing capture hotkeys retain their Windows virtual-key meaning. Changing the
+Windows layout does not select or change a remote layout, and broadcasting sends the same
+positions to all hosts, so different host layouts can produce different text.
+
+No new pairing or GATT/report-descriptor change is needed for this mapping fix. JIS-specific
+keys, IME composition, and automatic character translation between different host layouts
+are not implemented. Missing or unknown scan codes retain the legacy virtual-key fallback.
+
 ### Scripted input
 
 Useful for automation or for testing the link without handing over your keyboard.
+Unlike live physical-key capture, `type <text>` uses a **US ASCII layout** mapping; select a
+US hardware layout on the receiver for that command. It does not send arbitrary Unicode.
 
 | Command | Description |
 | --- | --- |
