@@ -73,6 +73,24 @@ Needs a host that reports lock keys. Android 16 is the only confirmed one.
 - [ ] A host that does **not** report lamps still shows a state, labelled `inferred`
 - [ ] `Ctrl+Alt+CapsLock` still does not toggle Caps Lock on the host — now directly observable
 
+## 2b. Physical keyboard layouts
+
+Run live capture in both the desktop app and CLI. Keep a text field focused on the receiving
+device before typing; do not test against its Bluetooth settings screen. Scripted `type`
+still requires the receiver's US layout and is not a layout-capture test.
+
+- [ ] German Windows + German ISO keyboard + iPhone German **Hardware Keyboard** setting:
+      verify Y/Z, umlauts, sharp S, punctuation, and the extra key beside left Shift
+- [ ] Verify Shift, AltGr combinations (`@`, euro, braces, pipe), and dead-key compositions;
+      record any host-specific modifier behavior, including Windows' synthetic Ctrl for AltGr
+- [ ] US and UK ANSI/ISO keyboards: verify punctuation, Shift combinations, and the ISO extra key
+- [ ] French AZERTY: verify A/Q, Z/W, M, digits with Shift, and punctuation
+- [ ] Change the Windows input language while capturing: physical usages remain unchanged
+- [ ] Change the receiver's hardware layout: output follows that layout, not the Windows layout
+- [ ] Switch targets and broadcast to two layouts: each host interprets the same key positions
+- [ ] Confirm key releases, Caps Lock, numpad/navigation distinction, and all capture hotkeys
+- [ ] Test with an existing bond: no forget/re-pair should be required, because GATT is unchanged
+
 ## 3. Capture mode (CLI)
 
 - [ ] `capture` refuses to arm when no host is subscribed

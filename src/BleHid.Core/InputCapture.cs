@@ -284,7 +284,7 @@ public sealed class InputCapture : IDisposable
 
     /// <summary>
     /// Scan code and the extended flag identify the physical key, which the virtual-key code
-    /// alone cannot: Windows has already applied the local Num Lock state by this point.
+    /// alone cannot: Windows has already applied the local layout and Num Lock state.
     /// </summary>
     internal bool HandleKeyboardEvent(int virtualKey, bool isDown, uint scanCode = 0, bool extended = false)
     {
