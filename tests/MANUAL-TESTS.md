@@ -84,6 +84,17 @@ select German on the receiver, and compare local Notepad with the receiver. By U
 `Y`/`Z` → `z`/`y`, `[` `;` `'` → `ü` `ö` `ä`, `-` → `ß`, `\` → `#`. ANSI keyboards have no
 ISO extra key beside left Shift; test scan code `0x56` only with an ISO keyboard.
 
+The quickest check needs only English layouts: set this PC to English (UK) and a Windows
+host to a US-position layout such as English (US) or English (India). By US labels, the
+host must type `'` `` ` `` `\` and `"` `|` `~` with Shift. The old build sent `` ` ``, nothing
+and `'` for the first three. Switching the host to English (UK) must then give `#` for
+`\`, `£` for `Shift+3` and `@` for `Shift+'`, whatever this PC's layout.
+
+- [x] US keyboard, this PC on English (UK), Windows host on English (India), then on
+      English (UK): the host follows its own layout (verified 2026-11-14)
+- [x] Same setup, host on English (UK): `AltGr+4` types `€`, `AltGr+Q` does not stop
+      capture, `Ctrl+Alt+Q` and `Ctrl+Alt+CapsLock` still work, and switching targets while
+      holding AltGr leaves no key stuck (verified 2026-11-14)
 - [ ] German Windows + German ISO keyboard + iPhone German **Hardware Keyboard** setting:
       verify Y/Z, umlauts, sharp S, punctuation, and the extra key beside left Shift
 - [ ] Verify Shift, AltGr combinations (`@`, euro, braces, pipe), and dead-key compositions
