@@ -150,6 +150,9 @@ Chinese translation builds on [@Vierblatt](https://github.com/Vierblatt)'s work;
 
 Logs and diagnostic reports stay in English, so maintainers can read them in bug reports.
 
+The display language only changes BleHid's own text. It does not change which characters
+your keystrokes produce on a host; for that, see [Keyboard layouts](#keyboard-layouts-german-french-uk-us).
+
 **Help translate:** no Git or coding is needed. Copy the English text, translate it, and
 paste it into a [translation issue](https://github.com/abhishek-raj/windows-ble-hid/issues/new?template=translation.yml).
 A bot checks it, and once approved, your translation is added with you credited as a
@@ -369,7 +372,8 @@ swapping German Y/Z or misinterpreting umlaut and punctuation keys).
 Select the layout matching your physical keyboard **on each receiving device**. For a
 German QWERTZ keyboard connected to an iPhone, choose German under **Settings > General >
 Keyboard > Hardware Keyboard** while connected. The iPhone's display language and onscreen
-keyboard language alone do not guarantee the hardware keyboard uses German.
+keyboard language alone do not guarantee the hardware keyboard uses German. Likewise,
+BleHid's own [display language](#languages) has no effect on what a host types.
 
 Standard PC ANSI/ISO key positions, including the ISO key beside left Shift (`< > |` on
 German keyboards), are forwarded by scan code in both the desktop app and CLI. Shift and
