@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace BleHid.Translations;
@@ -55,11 +56,26 @@ internal sealed partial record IssueSubmission(string? Language, string? Json, I
 
         if (!BleHid.Localization.TranslationValidator.IsValidLanguageCode(code))
         {
-            errors.Add($"`{Markdown.Code(code)}` is not a language code BleHid can use. Use a code such as `fr`, `pt-BR` or `zh-Hant`.");
+            errors.Add(LanguageCodeProblem(code));
             return null;
         }
 
         return code;
+    }
+
+    private static string LanguageCodeProblem(string code)
+    {
+        var shown = Markdown.Code(code);
+        if (BleHid.Localization.TranslationValidator.IsEnglish(code))
+            return $"`{shown}` is English, which is BleHid's source language, so it cannot be added as a translation. " +
+                   "To suggest better English wording, open a regular issue instead.";
+
+        // Validated codes and .NET's own culture names, so neither needs escaping.
+        if (BleHid.Localization.TranslationValidator.SuggestLanguageCode(code) is { } suggestion)
+            return $"`{shown}` is not a language code BleHid can use. Did you mean `{suggestion}`, " +
+                   $"{CultureInfo.GetCultureInfo(suggestion).EnglishName}?";
+
+        return $"`{shown}` is not a language code BleHid can use. Use a code such as `fr`, `pt-BR` or `zh-Hant`.";
     }
 
     /// <summary>Issue forms render each field as a <c>### Label</c> heading followed by its value.</summary>

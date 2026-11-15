@@ -105,6 +105,17 @@ public sealed class TranslationRulesTests
         Assert.Equal(valid, TranslationValidator.IsValidLanguageCode(code));
 
     [Theory]
+    [InlineData("de-de", "de-DE")]
+    [InlineData("pt_br", "pt-BR")]
+    [InlineData("ZH-hans", "zh-Hans")]
+    [InlineData("cy-UK", "cy-GB")]
+    [InlineData("de", null)]
+    [InlineData("en-UK", null)]
+    [InlineData("x`y", null)]
+    public void Miswritten_language_codes_get_a_usable_suggestion(string code, string? expected) =>
+        Assert.Equal(expected, TranslationValidator.SuggestLanguageCode(code));
+
+    [Theory]
     [InlineData("app.capture.title", true)]
     [InlineData("android.share_diagnostics", true)]
     [InlineData("App.title", false)]

@@ -51,6 +51,18 @@ public sealed partial class TranslationIssueTests
         Assert.Contains(invalid.Errors, error => error.Contains("x'y"));
     }
 
+    [Theory]
+    [InlineData("en-UK", "source language")]
+    [InlineData("EN-gb", "source language")]
+    [InlineData("de-de", "Did you mean `de-DE`")]
+    public void Rejected_codes_explain_what_to_do(string code, string expected)
+    {
+        var submission = IssueSubmission.Parse(Body("Other", "{}", otherCode: code));
+
+        Assert.Null(submission.Language);
+        Assert.Contains(submission.Errors, error => error.Contains(expected));
+    }
+
     [Fact]
     public void An_unticked_license_or_empty_field_is_reported()
     {
