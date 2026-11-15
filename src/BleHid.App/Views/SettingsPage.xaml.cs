@@ -188,7 +188,8 @@ public partial class SettingsPage : Page
         if (keyboard.HasFlag(ModifierKeys.Control)) modifiers |= HotkeyModifiers.Control;
         if (keyboard.HasFlag(ModifierKeys.Alt)) modifiers |= HotkeyModifiers.Alt;
         if (keyboard.HasFlag(ModifierKeys.Shift)) modifiers |= HotkeyModifiers.Shift;
-        if (keyboard.HasFlag(ModifierKeys.Windows)) modifiers |= HotkeyModifiers.Win;
+        // Keyboard.Modifiers never includes ModifierKeys.Windows, so ask for the keys themselves.
+        if (Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin)) modifiers |= HotkeyModifiers.Win;
         return modifiers;
     }
 
