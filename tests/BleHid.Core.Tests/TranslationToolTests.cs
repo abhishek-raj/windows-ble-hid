@@ -237,7 +237,7 @@ public sealed partial class TranslationRepositoryTests
         !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
         && !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}");
 
-    [GeneratedRegex("\"((?:app|cli|common|target|lock|advertisement|key)\\.[A-Za-z0-9_.]+)\"")]
+    [GeneratedRegex("\"((?:app|cli|common|target|lock|advertisement|key|shortcut)\\.[A-Za-z0-9_.]+)\"")]
     private static partial Regex CodeKey();
 
     [GeneratedRegex(@"\{l:(?:Tr|Format) ([A-Za-z0-9_.]+)\}")]

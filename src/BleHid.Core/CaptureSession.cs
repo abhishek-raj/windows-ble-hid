@@ -79,13 +79,18 @@ public static class CaptureSession
     /// Console mode ends on Ctrl+Alt+Q. Background mode has no console to return to, so the
     /// same hotkey drops to the local target instead and capture keeps running.
     /// </param>
+    /// <param name="toggleShortcut">
+    /// The owner's stop/start shortcut. Capture only has to catch it while input is redirected,
+    /// and reports it through the shortcut's own event; stopping is the owner's job.
+    /// </param>
     public static async Task<int> RunAsync(
         BleHidPeripheral peripheral,
         Action<string> log,
         bool verbose,
         Func<int> mouseIntervalMs,
         bool stopEndsSession,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PeripheralToggleShortcut? toggleShortcut = null)
     {
         using var capture = new InputCapture { Verbose = verbose };
         var stopped = new TaskCompletionSource();
@@ -256,6 +261,14 @@ public static class CaptureSession
         void OnTargetChanged() => capture.SetPassThrough(peripheral.IsLocalTarget);
         peripheral.TargetChanged += OnTargetChanged;
 
+        void ApplyToggleShortcut() => capture.SetToggleHotkey(toggleShortcut?.Hotkey);
+        if (toggleShortcut is not null)
+        {
+            ApplyToggleShortcut();
+            toggleShortcut.Changed += ApplyToggleShortcut;
+            capture.TogglePeripheralRequested += toggleShortcut.RequestToggle;
+        }
+
         try
         {
             log($"  pointer report interval: {PointerIntervalMs()} ms");
@@ -264,6 +277,7 @@ public static class CaptureSession
             log(stopEndsSession
                 ? "  capturing - Ctrl+Alt+Q stops."
                 : "  capturing - Ctrl+Alt+Q returns input to this PC.");
+            if (toggleShortcut?.Hotkey is { } toggle) log($"  {toggle} stops the peripheral.");
 
             capture.Start();
             await stopped.Task;
@@ -272,6 +286,7 @@ public static class CaptureSession
         {
             capture.Stop();
             peripheral.TargetChanged -= OnTargetChanged;
+            if (toggleShortcut is not null) toggleShortcut.Changed -= ApplyToggleShortcut;
         }
 
         pumpCancellation.Cancel();

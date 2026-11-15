@@ -19,6 +19,9 @@ public sealed class PeripheralService : INotifyPropertyChanged
 
     private BleHidPeripheral? _peripheral;
     private CancellationTokenSource? _captureCancellation;
+    private PeripheralToggleShortcut? _toggleShortcut;
+    private string? _lastShortcutLog;
+    private bool _rearmCaptureOnStart;
     private readonly DispatcherTimer _poll;
     private readonly Dispatcher _dispatcher = Application.Current.Dispatcher;
 
@@ -141,6 +144,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
         IsBusy = true;
         try
         {
+            _rearmCaptureOnStart = IsCapturing;
             await StopCaptureAsync();
             _poll.Stop();
             if (_peripheral is not null)
@@ -162,6 +166,48 @@ public sealed class PeripheralService : INotifyPropertyChanged
         {
             IsBusy = false;
         }
+    }
+
+    public PeripheralToggleShortcut? ToggleShortcut => _toggleShortcut;
+
+    /// <summary>Raised on the UI thread after the shortcut acted: whether it was running before, and is now.</summary>
+    public event Action<bool, bool>? ToggledByShortcut;
+
+    public void UseToggleShortcut(PeripheralToggleShortcut shortcut)
+    {
+        _toggleShortcut = shortcut;
+        // The hook thread can raise Pressed, and it must never wait for a Bluetooth teardown.
+        shortcut.Pressed += () => _dispatcher.BeginInvoke(() => _ = TogglePeripheralAsync());
+        shortcut.Changed += () => _dispatcher.BeginInvoke(LogToggleShortcut);
+        LogToggleShortcut();
+    }
+
+    /// <summary>
+    /// The same full stop and start as the buttons. Capture that was armed when the peripheral
+    /// stopped is re-armed, because with the window hidden the hotkeys are the only way back to a host.
+    /// </summary>
+    public async Task TogglePeripheralAsync()
+    {
+        if (IsBusy) return;
+        var wasRunning = IsRunning;
+        if (wasRunning)
+        {
+            await StopAsync();
+        }
+        else
+        {
+            await StartAsync();
+            if (IsRunning && _rearmCaptureOnStart) await StartCaptureAsync(armEarly: true);
+        }
+
+        ToggledByShortcut?.Invoke(wasRunning, IsRunning);
+    }
+
+    private void LogToggleShortcut()
+    {
+        if (_toggleShortcut?.LogLine is not { } line || line == _lastShortcutLog) return;
+        _lastShortcutLog = line;
+        Append(line);
     }
 
     public async Task RefreshHostsAsync()
@@ -302,7 +348,7 @@ public sealed class PeripheralService : INotifyPropertyChanged
             try
             {
                 await CaptureSession.RunAsync(peripheral, Append, verbose: false, () => PointerIntervalMs,
-                    stopEndsSession: true, token);
+                    stopEndsSession: true, token, _toggleShortcut);
             }
             catch (Exception ex)
             {

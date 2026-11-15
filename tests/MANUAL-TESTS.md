@@ -177,6 +177,24 @@ Measured on Android, historically the worst case.
 - [ ] Closing the window with close-to-tray on hides rather than exits
 - [ ] Autostart entry launches the app hidden after a reboot
 
+## 6a. Stop and start shortcut
+
+Set one first, e.g. `Ctrl+Shift+F12`, on the Settings page or with `--toggle-shortcut`.
+
+- [ ] Settings: clicking the box shows the prompt; `Ctrl+F12`, `Ctrl+Alt+E` and `Ctrl+Alt+Q` are refused with a reason
+- [ ] Settings: a valid combination is saved and shown with translated key names (e.g. `Strg+Umschalt+F12` in German)
+- [ ] Settings: recording the **current** shortcut again works instead of toggling the peripheral
+- [ ] Settings: Esc cancels, Backspace and **Clear** remove the shortcut, Tab still moves focus
+- [ ] A combination owned by another app shows the "already uses" warning
+- [ ] With input on **This PC**, the shortcut stops the peripheral and the tray shows "stopped"
+- [ ] Pressed again, it starts the peripheral; capture comes back armed if it was armed
+- [ ] **While driving a host**, the shortcut stops the peripheral, no key stays stuck on the host, and an iPhone shows its on-screen keyboard
+- [ ] Holding the shortcut toggles only once
+- [ ] Works with the window hidden in the tray
+- [ ] Background mode: the shortcut stops and starts the peripheral; `blehid.log` shows both, and `--stop` still exits
+- [ ] Changing the shortcut with `--toggle-shortcut` reaches a running app and background instance without a restart
+- [ ] After a start, macOS reconnects; Android needs **Connect** (expected, see Known issues)
+
 ## 7. Handover (the parts needing a click)
 
 `Invoke-HandoverTests.ps1` covers the rest.

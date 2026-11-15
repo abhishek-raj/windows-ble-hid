@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading.Channels;
 using BleHid.Core;
 using BleHid.Localization;
 using Microsoft.Win32;
@@ -40,24 +41,6 @@ internal static class BackgroundMode
 
         Log($"--- background start (pid {Environment.ProcessId}) ---");
 
-        var peripheral = new BleHidPeripheral(requireEncryption);
-        peripheral.Log += Log;
-
-        try
-        {
-            await peripheral.StartAsync();
-        }
-        catch (Exception ex)
-        {
-            Log($"startup failed: {ex.Message}");
-            return 1;
-        }
-
-        Log($"advertising: {peripheral.AdvertisementStatus}");
-
-        // Start on the local target so input keeps working normally until a host is chosen.
-        peripheral.SelectLocal();
-
         using var stopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, StopEventName);
         // A named event that still exists ignores the initial state above, so the stop request that
         // retired the previous owner would fire this one immediately.
@@ -66,20 +49,112 @@ internal static class BackgroundMode
         var stopRegistration = ThreadPool.RegisterWaitForSingleObject(
             stopEvent, (_, _) => cancellation.Cancel(), null, Timeout.Infinite, executeOnlyOnce: true);
 
-        try
+        // Lives for the whole process rather than one session: it has to start a stopped peripheral.
+        using var toggleShortcut = new PeripheralToggleShortcut(AppPaths.ShortcutsConfig);
+        var toggles = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
+        toggleShortcut.Pressed += () => toggles.Writer.TryWrite(true);
+        string? lastShortcutLog = null;
+        void LogShortcut()
         {
-            await CaptureSession.RunAsync(peripheral, Log, verbose: false, mouseIntervalMs: () => 10,
-                stopEndsSession: false, cancellation.Token);
+            if (toggleShortcut.LogLine is not { } line || line == lastShortcutLog) return;
+            lastShortcutLog = line;
+            Log(line);
         }
-        catch (Exception ex)
+        LogShortcut();
+        toggleShortcut.Changed += LogShortcut;
+
+        // A press during a stop or start is part of that transition, not a request for another.
+        void DropPendingToggles()
         {
-            Log($"capture failed: {ex}");
+            while (toggles.Reader.TryRead(out _)) { }
+        }
+
+        var exitCode = 0;
+        var firstStart = true;
+        while (!cancellation.IsCancellationRequested)
+        {
+            var peripheral = await StartPeripheralAsync(requireEncryption, Log);
+            if (peripheral is null && firstStart)
+            {
+                exitCode = 1;
+                break;
+            }
+
+            firstStart = false;
+            if (peripheral is not null)
+            {
+                await RunUntilToggledAsync(peripheral);
+                if (cancellation.IsCancellationRequested) break;
+                Log("peripheral stopped by shortcut");
+            }
+
+            DropPendingToggles();
+            try
+            {
+                await toggles.Reader.ReadAsync(cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            Log("peripheral starting by shortcut");
         }
 
         stopRegistration.Unregister(null);
-        await peripheral.DisposeAsync();
         Log("--- background stop ---");
-        return 0;
+        return exitCode;
+
+        async Task RunUntilToggledAsync(BleHidPeripheral peripheral)
+        {
+            using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+            DropPendingToggles();
+            var stopOnToggle = Task.Run(async () =>
+            {
+                try
+                {
+                    await toggles.Reader.ReadAsync(session.Token);
+                    session.Cancel();
+                }
+                catch (OperationCanceledException) { }
+            });
+
+            try
+            {
+                await CaptureSession.RunAsync(peripheral, Log, verbose: false, mouseIntervalMs: () => 10,
+                    stopEndsSession: false, session.Token, toggleShortcut);
+            }
+            catch (Exception ex)
+            {
+                Log($"capture failed: {ex}");
+            }
+
+            session.Cancel();
+            await stopOnToggle;
+            await peripheral.DisposeAsync();
+        }
+    }
+
+    private static async Task<BleHidPeripheral?> StartPeripheralAsync(bool requireEncryption, Action<string> log)
+    {
+        var peripheral = new BleHidPeripheral(requireEncryption);
+        peripheral.Log += log;
+
+        try
+        {
+            await peripheral.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            log($"startup failed: {ex.Message}");
+            await peripheral.DisposeAsync();
+            return null;
+        }
+
+        log($"advertising: {peripheral.AdvertisementStatus}");
+
+        // Start on the local target so input keeps working normally until a host is chosen.
+        peripheral.SelectLocal();
+        return peripheral;
     }
 
     public static int Stop()
@@ -123,6 +198,48 @@ internal static class BackgroundMode
 
         key.SetValue(RunValue, $"\"{exe}\" --background");
         Console.WriteLine(Loc.T("cli.autostart.installed", ("command", $"\"{exe}\" --background")));
+        return 0;
+    }
+
+    /// <summary>
+    /// Shows or changes the stop/start shortcut. It is stored in a watched file, so a running
+    /// background instance or desktop app applies the change without a restart.
+    /// </summary>
+    public static int ConfigureToggleShortcut(string? value)
+    {
+        var current = ShortcutSettings.Load(AppPaths.ShortcutsConfig);
+        if (value is not null)
+        {
+            Hotkey? hotkey = null;
+            if (!value.Equals("off", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Hotkey.TryParse(value, out var parsed))
+                {
+                    Console.WriteLine(Loc.T("cli.shortcut.invalid", ("keys", value)));
+                    return 1;
+                }
+
+                if (Shortcuts.Problem(parsed) is { } problem)
+                {
+                    Console.WriteLine(problem);
+                    return 1;
+                }
+
+                hotkey = parsed;
+            }
+
+            var updated = current.WithTogglePeripheral(hotkey);
+            if (!updated.TrySave(AppPaths.ShortcutsConfig, out var error))
+            {
+                Console.WriteLine(Loc.T("cli.shortcut.saveFailed", ("error", error)));
+                return 1;
+            }
+            current = updated;
+        }
+
+        var shown = current.TogglePeripheral is { } active ? Shortcuts.Format(active) : Loc.T("cli.shortcut.none");
+        Console.WriteLine(Loc.T("cli.shortcut.state", ("shortcut", shown)));
+        if (current.Warning is { } warning) Console.WriteLine(warning);
         return 0;
     }
 

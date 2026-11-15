@@ -136,6 +136,27 @@ In resident mode, `Ctrl+Alt+Q` also enables hook pass-through synchronously befo
 release ordering on a healthy connection, while local recovery no longer depends on a
 possibly stalled `NotifyValueAsync` call to a vanished host.
 
+### The stop and start shortcut has two delivery paths
+
+The user's shortcut is stored in `%LOCALAPPDATA%\BleHid\shortcuts.json` and watched with
+the same `SettingsFileWatcher` as the switch gesture, so the app and background mode share
+it across processes. `PeripheralToggleShortcut` registers it with `RegisterHotKey` on a
+dedicated message-loop thread for the whole process lifetime, because it must also start a
+stopped peripheral.
+
+While input is redirected, the low-level hook swallows keys before Windows can match a
+registered hotkey, so `InputCapture` matches the same combination itself: exact modifiers,
+latched against auto-repeat, and held keys released on the host first. In pass-through the
+hook leaves the keys to Windows, so a press never reaches both paths. Handlers only queue
+the toggle; the hook thread must never wait for a provider teardown.
+
+The action is a full stop, like the Stop button, so the next start recreates the provider
+with the consequences described in
+[Android provider-restart reconnect root cause](#android-provider-restart-reconnect-root-cause).
+`Ctrl+Alt` with a letter or digit is refused unless `Win` is also held, because Windows
+reports AltGr as `Ctrl+Alt` and AltGr+Shift as `Ctrl+Alt+Shift`: a registered `Ctrl+Alt+E`
+would swallow `€` on German layouts.
+
 ## GATT and HOGP layout
 
 The app exposes one composite HID service:

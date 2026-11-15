@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace BleHid.Core;
@@ -46,6 +47,9 @@ public sealed class InputCapture : IDisposable
     private bool _switchLatched;
     private bool _capsLockSwitchLatched;
     private bool _localAltGrSyntheticControl;
+    // Set from a settings-watcher thread while the hook thread reads it.
+    private volatile StrongBox<Hotkey>? _toggleHotkey;
+    private int _toggleLatchedKey;
     private volatile bool _passThrough;
     private volatile bool _running;
     // Swapped from the settings-watcher thread while the hook thread reads it, so the field has
@@ -61,6 +65,8 @@ public sealed class InputCapture : IDisposable
     public event Action<MouseButtons, int, int, int>? MouseReport;
     public event Action? SwitchHostRequested;
     public event Action? StopRequested;
+    /// <summary>The configured stop/start shortcut was pressed while input was redirected.</summary>
+    public event Action? TogglePeripheralRequested;
     public event Action<string>? Log;
 
     public bool IsRunning => _running;
@@ -89,6 +95,13 @@ public sealed class InputCapture : IDisposable
         _gesture = options is { Enabled: true } ? new ShakeGestureDetector(options) : null;
         _haveLocalPoint = false;
     }
+
+    /// <summary>
+    /// The stop/start shortcut to catch while input is redirected; null disables it. In
+    /// pass-through Windows sees the keys and delivers its registered hotkey instead.
+    /// </summary>
+    public void SetToggleHotkey(Hotkey? hotkey) =>
+        _toggleHotkey = hotkey is { } value ? new StrongBox<Hotkey>(value) : null;
 
     /// <summary>Test hook: replaces the wall clock used by the switch gesture.</summary>
     internal void SetNow(Func<int> now) => _now = now;
@@ -341,6 +354,22 @@ public sealed class InputCapture : IDisposable
             return true;
         }
 
+        // Latched until the key is released, so auto-repeat cannot stop and start again.
+        if (_toggleLatchedKey != 0 && virtualKey == _toggleLatchedKey)
+        {
+            if (!isDown) _toggleLatchedKey = 0;
+            return !releaseLocally;
+        }
+
+        if (isDown && !_passThrough && _toggleHotkey?.Value is { } toggle &&
+            virtualKey == toggle.VirtualKey && CurrentHotkeyModifiers() == toggle.Modifiers)
+        {
+            _toggleLatchedKey = virtualKey;
+            ReleaseHostInput();
+            TogglePeripheralRequested?.Invoke();
+            return true;
+        }
+
         // Hotkeys stay live in pass-through, but nothing else is captured or swallowed.
         if (_passThrough)
         {
@@ -386,6 +415,12 @@ public sealed class InputCapture : IDisposable
         // Release everything held before the target changes. These reports are queued ahead of
         // the switch, so the outgoing host sees the release instead of being left with a key or
         // a mouse button stuck down.
+        ReleaseHostInput();
+        SwitchHostRequested?.Invoke();
+    }
+
+    private void ReleaseHostInput()
+    {
         _pressedUsages.Clear();
         KeyboardReport?.Invoke(KeyModifiers.None, []);
         if (_buttons != MouseButtons.None)
@@ -393,7 +428,6 @@ public sealed class InputCapture : IDisposable
             _buttons = MouseButtons.None;
             MouseReport?.Invoke(_buttons, 0, 0, 0);
         }
-        SwitchHostRequested?.Invoke();
     }
 
     /// <summary>
@@ -527,6 +561,16 @@ public sealed class InputCapture : IDisposable
         if (_pressedVirtualKeys.Contains(0xA5)) modifiers |= KeyModifiers.RightAlt;
         if (_pressedVirtualKeys.Contains(0x5B)) modifiers |= KeyModifiers.LeftGui;
         if (_pressedVirtualKeys.Contains(0x5C)) modifiers |= KeyModifiers.RightGui;
+        return modifiers;
+    }
+
+    private HotkeyModifiers CurrentHotkeyModifiers()
+    {
+        var modifiers = HotkeyModifiers.None;
+        if (IsDown(0x11)) modifiers |= HotkeyModifiers.Control;
+        if (IsDown(0x12)) modifiers |= HotkeyModifiers.Alt;
+        if (_pressedVirtualKeys.Contains(0xA0) || _pressedVirtualKeys.Contains(0xA1)) modifiers |= HotkeyModifiers.Shift;
+        if (_pressedVirtualKeys.Contains(0x5B) || _pressedVirtualKeys.Contains(0x5C)) modifiers |= HotkeyModifiers.Win;
         return modifiers;
     }
 

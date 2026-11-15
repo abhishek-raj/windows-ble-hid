@@ -14,6 +14,12 @@ if (Flag("--diagnose")) return await DiagnoseMode.RunAsync(requireEncryption);
 if (Flag("--stop")) return BackgroundMode.Stop();
 if (Flag("--install-autostart")) return BackgroundMode.InstallAutoStart(true);
 if (Flag("--remove-autostart")) return BackgroundMode.InstallAutoStart(false);
+if (Flag("--toggle-shortcut"))
+{
+    var index = Array.FindIndex(args, arg => arg.Equals("--toggle-shortcut", StringComparison.OrdinalIgnoreCase));
+    var value = index + 1 < args.Length && !args[index + 1].StartsWith("--", StringComparison.Ordinal) ? args[index + 1] : null;
+    return BackgroundMode.ConfigureToggleShortcut(value);
+}
 
 var peripheral = new BleHidPeripheral(requireEncryption);
 peripheral.Log += message => Console.WriteLine(message);
@@ -72,11 +78,11 @@ foreach (var (command, key) in new[]
     ("classic <on|off>", "cli.help.classic"),
     ("quit", "cli.help.quit")
 })
-    Console.WriteLine(ConsoleText.Help(command, key, width: 25));
+    Console.WriteLine(ConsoleText.Help(command, key, width: 27));
 
 Console.WriteLine();
 Console.WriteLine(Loc.T("cli.help.whileCapturing"));
-Console.WriteLine(ConsoleText.Help(Shortcuts.SwitchTarget, "cli.help.switchTarget", width: 25));
+Console.WriteLine(ConsoleText.Help(Shortcuts.SwitchTarget, "cli.help.switchTarget", width: 27));
 Console.WriteLine();
 Console.WriteLine(Loc.T("cli.help.backgroundTitle"));
 foreach (var (option, key) in new[]
@@ -85,9 +91,10 @@ foreach (var (option, key) in new[]
     ("--stop", "cli.help.stop"),
     ("--install-autostart", "cli.help.installAutostart"),
     ("--remove-autostart", "cli.help.removeAutostart"),
+    ("--toggle-shortcut <keys>", "cli.help.toggleShortcut"),
     ("--lang <code>", "cli.help.lang")
 })
-    Console.WriteLine(ConsoleText.Help(option, key, width: 25));
+    Console.WriteLine(ConsoleText.Help(option, key, width: 27));
 Console.WriteLine();
 
 while (true)

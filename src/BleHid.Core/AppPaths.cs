@@ -26,4 +26,7 @@ public static class AppPaths
 
     /// <summary>Path of the pointer switch gesture configuration file.</summary>
     public static string SwitchGestureConfig => InRoot("switch-gesture.json");
+
+    /// <summary>Path of the global shortcuts configuration file.</summary>
+    public static string ShortcutsConfig => InRoot("shortcuts.json");
 }

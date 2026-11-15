@@ -410,6 +410,70 @@ public sealed class InputCaptureTests
         Assert.Equal(0, switches);
     }
 
+    private const int LeftShift = 0xA0;
+    private const int F12 = 0x7B;
+
+    [Fact]
+    public void Toggle_shortcut_is_caught_once_while_redirecting_and_releases_the_host()
+    {
+        using var capture = new InputCapture();
+        capture.SetToggleHotkey(new Hotkey(HotkeyModifiers.Control | HotkeyModifiers.Shift, F12));
+        var reports = new List<(KeyModifiers Modifiers, byte[] Usages)>();
+        var toggles = 0;
+        capture.KeyboardReport += (modifiers, usages) => reports.Add((modifiers, usages));
+        capture.TogglePeripheralRequested += () =>
+        {
+            Assert.Equal(KeyModifiers.None, reports[^1].Modifiers);
+            Assert.Empty(reports[^1].Usages);
+            toggles++;
+        };
+
+        capture.HandleKeyboardEvent(LeftControl, true, 0x1D);
+        capture.HandleKeyboardEvent(LeftShift, true, 0x2A);
+        Assert.True(capture.HandleKeyboardEvent(F12, true, 0x58));
+        Assert.True(capture.HandleKeyboardEvent(F12, true, 0x58)); // auto-repeat
+        Assert.True(capture.HandleKeyboardEvent(F12, false, 0x58));
+
+        Assert.Equal(1, toggles);
+        Assert.DoesNotContain(reports, report => report.Usages.Contains((byte)0x45)); // F12 never reaches the host
+    }
+
+    [Fact]
+    public void Toggle_shortcut_is_left_to_windows_in_pass_through()
+    {
+        using var capture = new InputCapture();
+        capture.SetPassThrough(true);
+        capture.SetToggleHotkey(new Hotkey(HotkeyModifiers.Control | HotkeyModifiers.Shift, F12));
+        var toggles = 0;
+        capture.TogglePeripheralRequested += () => toggles++;
+
+        capture.HandleKeyboardEvent(LeftControl, true, 0x1D);
+        capture.HandleKeyboardEvent(LeftShift, true, 0x2A);
+
+        Assert.False(capture.HandleKeyboardEvent(F12, true, 0x58));
+        Assert.False(capture.HandleKeyboardEvent(F12, false, 0x58));
+        Assert.Equal(0, toggles);
+    }
+
+    [Fact]
+    public void Toggle_shortcut_needs_exactly_its_modifiers()
+    {
+        using var capture = new InputCapture();
+        capture.SetToggleHotkey(new Hotkey(HotkeyModifiers.Control | HotkeyModifiers.Shift, F12));
+        var toggles = 0;
+        byte[] last = [];
+        capture.TogglePeripheralRequested += () => toggles++;
+        capture.KeyboardReport += (_, usages) => last = usages;
+
+        capture.HandleKeyboardEvent(LeftControl, true, 0x1D);
+        capture.HandleKeyboardEvent(LeftAlt, true, 0x38);
+        capture.HandleKeyboardEvent(LeftShift, true, 0x2A);
+        capture.HandleKeyboardEvent(F12, true, 0x58);
+
+        Assert.Equal(0, toggles);
+        Assert.Equal(new byte[] { 0x45 }, last);
+    }
+
     [Fact]
     public void Shake_gesture_switches_the_target()
     {

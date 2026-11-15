@@ -15,6 +15,7 @@ public partial class App : Application
     private Mutex? _instance;
     private EventWaitHandle? _stopRequest;
     private RegisteredWaitHandle? _stopRegistration;
+    private PeripheralToggleShortcut? _toggleShortcut;
     private bool _exiting;
 
     public new static App Current => (App)Application.Current;
@@ -60,6 +61,11 @@ public partial class App : Application
             Dispatcher.Invoke(() => Tray?.UpdateStatus(peripheral.Target, peripheral.TargetLockWarning));
         };
 
+        // Registered for the whole process, not per session: it has to work while stopped too.
+        _toggleShortcut = new PeripheralToggleShortcut(AppPaths.ShortcutsConfig);
+        peripheral.UseToggleShortcut(_toggleShortcut);
+        peripheral.ToggledByShortcut += OnToggledByShortcut;
+
         var startHidden = e.Args.Contains(StartupService.TrayArgument, StringComparer.OrdinalIgnoreCase);
         MainWindow = new MainWindow();
         if (!startHidden) MainWindow.Show();
@@ -74,6 +80,18 @@ public partial class App : Application
     {
         await PeripheralService.Instance.StartAsync();
         await PeripheralService.Instance.StartCaptureAsync(armEarly: true);
+    }
+
+    // The shortcut usually fires with the window hidden, so the tray is the only feedback.
+    private void OnToggledByShortcut(bool wasRunning, bool isRunning)
+    {
+        var shortcut = _toggleShortcut?.Hotkey is { } hotkey ? Shortcuts.Format(hotkey) : string.Empty;
+        Tray?.ShowMessage((wasRunning, isRunning) switch
+        {
+            (_, true) => Loc.T("app.tray.started", ("shortcut", shortcut)),
+            (true, false) => Loc.T("app.tray.stopped", ("shortcut", shortcut)),
+            _ => Loc.T("app.tray.startFailed")
+        });
     }
 
     /// <summary>
@@ -137,6 +155,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _toggleShortcut?.Dispose();
         _stopRegistration?.Unregister(null);
         _stopRequest?.Dispose();
         _instance?.Dispose();

@@ -103,6 +103,9 @@ The same shortcuts work in the desktop app and interactive CLI:
 | `Ctrl` + `Alt` + `Q` | Stop and return control to this PC |
 | `Ctrl` + `Alt` + `CapsLock` or `Ctrl` + `D` + `C` | Switch which device you are driving, including back to this PC |
 
+To turn BleHid off and on from the keyboard, for example so an iPhone shows its on-screen
+keyboard again, set a [stop and start shortcut](#stop-and-start-shortcut).
+
 The CLI also offers scripted input (`type`, `move`) and diagnostics.
 
 ---
@@ -209,6 +212,7 @@ BleHid.Cli.exe --background          # run detached, no console window
 BleHid.Cli.exe --stop                # shut it down
 BleHid.Cli.exe --install-autostart   # run at login (per-user, no admin)
 BleHid.Cli.exe --remove-autostart
+BleHid.Cli.exe --toggle-shortcut Ctrl+Shift+F12   # optional stop and start shortcut
 ```
 
 Auto-start is opt-in. Nothing is written to the `Run` key unless you run
@@ -221,6 +225,7 @@ pick a host. From there it is hotkeys only — there is no console to type into:
 | --- | --- |
 | `Ctrl` + `Alt` + `CapsLock` or `Ctrl` + `D` + `C` | Switch target: this PC → host 1 → … → host N → this PC |
 | `Ctrl` + `Alt` + `Q` | Return input to this PC (does **not** exit — use `--stop`) |
+| Your [stop and start shortcut](#stop-and-start-shortcut), if set | Stop or start the peripheral; the process keeps running |
 
 If the selected host disconnects, capture automatically returns input to this PC instead
 of continuing to swallow it. Reconnecting the host does not retarget it automatically;
@@ -341,6 +346,45 @@ positives: ordinary pointer movement never reaches that speed. Out-of-range valu
 clamped and the clamping is logged.
 
 The gesture is a convenience; the hotkeys above remain the guaranteed way to switch.
+
+### Stop and start shortcut
+
+A shortcut you choose stops BleHid and starts it again from anywhere, even with the window
+hidden. Stopping is the same as the **Stop** button: the PC stops being a keyboard and mouse,
+so an iPhone or iPad shows its on-screen keyboard again. There is no default.
+
+Set it on the **Settings** page (click the box, then press the keys), or from the command line:
+
+```powershell
+BleHid.Cli.exe --toggle-shortcut Ctrl+Shift+F12   # set
+BleHid.Cli.exe --toggle-shortcut                  # show
+BleHid.Cli.exe --toggle-shortcut off              # remove
+```
+
+Both write `%LOCALAPPDATA%\BleHid\shortcuts.json`. The file is watched, so the desktop app
+and background mode pick up a change immediately:
+
+```json
+{
+  "TogglePeripheral": "Ctrl+Shift+F12"
+}
+```
+
+- Use a letter, a digit or F1–F24 with at least two of `Ctrl`, `Alt`, `Shift` and `Win`.
+  F13–F24, which macro keys often send, also work on their own.
+- `Ctrl` + `Alt` with a letter or digit is refused, with or without `Shift`. Windows treats
+  AltGr as `Ctrl` + `Alt`, so it would block characters such as `€`, `@` or `É` on many
+  keyboard layouts. Adding `Win` avoids that. Any shortcut containing `Ctrl` + `Alt` + `Q`
+  is refused because that already stops capture.
+- If another app already owns the combination, Settings and the log say so.
+- It works in the desktop app and background mode, whether input is on this PC or on a host.
+  The interactive CLI does not use it.
+- After a start, input begins on **this PC**. The app re-arms capture if it was armed before
+  the stop, so the switch hotkeys work again straight away.
+
+Starting again recreates the GATT provider, exactly like **Stop** and **Start**. macOS
+reconnects by itself and iPhone is untested, but Android usually needs **Connect** in its
+Bluetooth settings and a Windows host may need re-pairing. See [Known issues](#known-issues).
 
 ### Lock key state
 
@@ -518,7 +562,8 @@ details on Android and tap **Connect**. If Input device does not begin working, 
 and pair it again.
 
 Keep BleHid in the notification area or use [background mode](#background-mode) to avoid
-unnecessary provider restarts. A Windows restart still destroys the provider and cannot be
+unnecessary provider restarts. The [stop and start shortcut](#stop-and-start-shortcut) is a
+provider restart too. A Windows restart still destroys the provider and cannot be
 hidden by autostart. See [DEVELOPMENT.md](DEVELOPMENT.md#android-provider-restart-reconnect-root-cause)
 for the Service Changed and bonded-CCCD analysis.
 
