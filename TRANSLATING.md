@@ -43,9 +43,10 @@ in English until someone translates it.
 - Keep text inside straight quotes `"..."`. If your text needs a quotation mark, write `\"`
   or use your language's own quotation marks, such as „…“ or 「…」.
 - Shortcuts appear as `{stopShortcut}`, `{switchShortcut}` and `{alternativeShortcut}`.
-  Keep these placeholders as they are. BLE HID builds every shortcut from `key.ctrl` and
-  `key.capsLock`, so translate those two to the names on keyboards in your language, such as
-  `Strg` and `Feststelltaste` in German. If your keyboards show the English names, leave them.
+  Keep these placeholders as they are. BLE HID builds every shortcut from `key.ctrl`,
+  `key.shift` and `key.capsLock`, so translate those to the names on keyboards in your
+  language, such as `Strg`, `Umschalt` and `Feststelltaste` in German. If your keyboards show
+  the English names, leave them.
 - Command names, options such as `--lang`, and words the notes ask you to keep (such as
   `local`, `on` and `off`) are typed by users and must stay in English.
 

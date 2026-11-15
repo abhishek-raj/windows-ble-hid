@@ -48,6 +48,7 @@ public static class DisplayText
 public static class Shortcuts
 {
     private static string Ctrl => Loc.T("key.ctrl");
+    private static string Shift => Loc.T("key.shift");
     private static string CapsLock => Loc.T("key.capsLock");
 
     public static string Stop => Compact(Ctrl, "Alt", "Q");
@@ -66,6 +67,42 @@ public static class Shortcuts
         Loc.SetSharedValue("switchShortcut", () => SwitchTarget);
         Loc.SetSharedValue("alternativeShortcut", () => SwitchTargetAlternative);
     }
+
+    /// <summary>A configured shortcut, named the same way as the built-in ones.</summary>
+    public static string Format(Hotkey hotkey) => Join(hotkey.Modifiers, hotkey.KeyName);
+
+    /// <summary>Modifiers held so far while a shortcut is being recorded.</summary>
+    public static string FormatPartial(HotkeyModifiers modifiers) => Join(modifiers, "…");
+
+    private static string Join(HotkeyModifiers modifiers, string key)
+    {
+        var keys = new List<string>();
+        if (modifiers.HasFlag(HotkeyModifiers.Control)) keys.Add(Ctrl);
+        if (modifiers.HasFlag(HotkeyModifiers.Alt)) keys.Add("Alt");
+        if (modifiers.HasFlag(HotkeyModifiers.Shift)) keys.Add(Shift);
+        if (modifiers.HasFlag(HotkeyModifiers.Win)) keys.Add("Win");
+        keys.Add(key);
+        return Compact([.. keys]);
+    }
+
+    /// <summary>Why a combination cannot be used, or null when it can.</summary>
+    public static string? Problem(Hotkey hotkey) => hotkey.Problem switch
+    {
+        HotkeyProblem.UnsupportedKey => Loc.T("shortcut.problem.unsupportedKey"),
+        HotkeyProblem.NeedsModifiers => Loc.T("shortcut.problem.needsModifiers",
+            ("modifiers", string.Join(", ", Ctrl, "Alt", Shift, "Win"))),
+        HotkeyProblem.AltGr => Loc.T("shortcut.problem.altGr", ("ctrlAlt", Compact(Ctrl, "Alt"))),
+        HotkeyProblem.Reserved => Loc.T("shortcut.problem.reserved"),
+        _ => null
+    };
+
+    /// <summary>Why a valid shortcut is not active, or null when it is (or none is set).</summary>
+    public static string? RegistrationProblem(Hotkey hotkey, HotkeyRegistration registration) => registration switch
+    {
+        HotkeyRegistration.InUse => Loc.T("shortcut.inUse", ("shortcut", Format(hotkey))),
+        HotkeyRegistration.Failed => Loc.T("shortcut.failed", ("shortcut", Format(hotkey))),
+        _ => null
+    };
 
     private static string Compact(params string[] keys) => string.Join('+', keys);
 

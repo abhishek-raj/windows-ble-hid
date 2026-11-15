@@ -65,6 +65,30 @@
       <ui:ToggleSwitch x:Name="SwitchGestureToggle" Click="OnSwitchGestureChanged" />
     </ui:CardControl>
 
+    <ui:CardControl Icon="{ui:SymbolIcon Keyboard24}" Margin="0,0,0,8">
+      <ui:CardControl.Header>
+        <StackPanel>
+          <ui:TextBlock Text="{l:Tr app.settings.toggleShortcut.title}" FontTypography="BodyStrong" />
+          <ui:TextBlock FontTypography="Caption" TextWrapping="Wrap"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="{l:Tr app.settings.toggleShortcut.description}" />
+          <ui:TextBlock x:Name="ToggleShortcutProblem" FontTypography="Caption" TextWrapping="Wrap"
+                        Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                        Margin="0,4,0,0" Visibility="Collapsed" />
+        </StackPanel>
+      </ui:CardControl.Header>
+      <StackPanel Orientation="Horizontal">
+        <TextBox x:Name="ToggleShortcutBox" MinWidth="180" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                 IsUndoEnabled="False" InputMethod.IsInputMethodEnabled="False"
+                 AutomationProperties.Name="{l:Tr app.settings.toggleShortcut.title}"
+                 ToolTip="{l:Tr app.settings.toggleShortcut.tooltip}"
+                 GotKeyboardFocus="OnShortcutRecordingStarted" LostKeyboardFocus="OnShortcutRecordingEnded"
+                 PreviewKeyDown="OnShortcutKeyDown" />
+        <ui:Button x:Name="ClearShortcutButton" Content="{l:Tr app.settings.toggleShortcut.clear}"
+                   Margin="8,0,0,0" Click="OnClearShortcut" />
+      </StackPanel>
+    </ui:CardControl>
+
     <ui:CardControl Icon="{ui:SymbolIcon LocalLanguage24}" Margin="0,0,0,8">
       <ui:CardControl.Header>
         <StackPanel>
