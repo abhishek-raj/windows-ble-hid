@@ -112,7 +112,7 @@ public static partial class TranslationValidator
     /// </summary>
     public static bool IsValidLanguageCode(string code)
     {
-        if (!LanguagePattern().IsMatch(code) || code.StartsWith("en", StringComparison.Ordinal) && (code.Length == 2 || code[2] == '-'))
+        if (!LanguagePattern().IsMatch(code) || IsEnglish(code))
             return false;
 
         try
@@ -124,6 +124,28 @@ public static partial class TranslationValidator
         {
             return false;
         }
+    }
+
+    /// <summary>True for <c>en</c> and every regional English, in any letter case.</summary>
+    public static bool IsEnglish(string code) =>
+        code.Trim().Split('-', '_')[0].Equals(Loc.SourceLanguage, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The usable spelling of a code that is only written wrongly, such as <c>de-de</c> or
+    /// <c>pt_br</c>; null when there is none. <c>UK</c> becomes <c>GB</c>, the United
+    /// Kingdom's actual region code.
+    /// </summary>
+    public static string? SuggestLanguageCode(string code)
+    {
+        var parts = code.Trim().Split('-', '_');
+        if (parts.Length > 3 || parts.Any(part => part.Length == 0)) return null;
+
+        var corrected = parts.Select((part, index) => index == 0 ? part.ToLowerInvariant()
+            : part.Length == 4 ? char.ToUpperInvariant(part[0]) + part[1..].ToLowerInvariant()
+            : part.ToUpperInvariant() is "UK" ? "GB"
+            : part.ToUpperInvariant());
+        var suggestion = string.Join('-', corrected);
+        return suggestion != code && IsValidLanguageCode(suggestion) ? suggestion : null;
     }
 
     [GeneratedRegex(@"^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9_]*)+$")]

@@ -49,7 +49,7 @@ body:
     id: code
     attributes:
       label: Language code
-      description: Only needed for **Other**. Use a code such as `sv`, `cs` or `es-MX`.
+      description: Only needed for **Other**. Use a code such as `sv`, `cs` or `es-MX`. English, including `en-GB`, is the source text and cannot be submitted.
       placeholder: sv
 
   - type: textarea

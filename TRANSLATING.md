@@ -26,6 +26,11 @@ a build environment.
 Partial translations are welcome. Anything you leave in English, or delete, simply shows
 in English until someone translates it.
 
+For a language missing from the list, choose **Other** and enter its code, such as `sv` or
+`es-MX`; regions use the country's ISO code, so the United Kingdom is `GB`, not `UK`. English
+variants such as `en-GB` are not accepted, because English is the source text. Suggest better
+English wording in a regular issue instead.
+
 ### What the file looks like
 
 ```json
