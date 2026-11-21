@@ -1,5 +1,9 @@
 # BleHid: Bluetooth Keyboard and Mouse Sharing for Windows
 
+[![Total downloads](https://img.shields.io/github/downloads/abhishek-raj/windows-ble-hid/total)](https://github.com/abhishek-raj/windows-ble-hid/releases)
+[![Latest release](https://img.shields.io/github/v/release/abhishek-raj/windows-ble-hid)](https://github.com/abhishek-raj/windows-ble-hid/releases/latest)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/abhishek-raj)](https://github.com/sponsors/abhishek-raj)
+
 <img src="src/BleHid.App/Assets/blehid.png" alt="BleHid icon" width="104" align="right">
 
 Turn a Windows PC into a Bluetooth Low Energy keyboard and mouse, so it can drive other
